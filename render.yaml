@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: ratechecker
+    env: python
+    buildCommand: "pip install -r requirements.txt && playwright install"
+    startCommand: "streamlit run app.py"
+    plan: free

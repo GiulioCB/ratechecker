@@ -1,0 +1,6 @@
+streamlit
+pandas
+playwright
+openpyxl
+xlsxwriter
+streamlit-authenticator
