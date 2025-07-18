@@ -32,4 +32,4 @@
 ### Step 6 – Password protection
 - Open `.streamlit/secrets.toml` and update usernames & passwords
 
-Enjoy!
+Enjoy!"# ratechecker" 
