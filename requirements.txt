@@ -4,3 +4,5 @@ playwright
 openpyxl
 xlsxwriter
 streamlit-authenticator
+selenium
+beautifulsoup4
