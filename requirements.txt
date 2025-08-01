@@ -1,11 +1,8 @@
 streamlit
-pandas
-playwright
+pandas>=2.0
+playwright==1.46.0
 openpyxl
 xlsxwriter
 streamlit-authenticator
-selenium
-beautifulsoup4
-playwright==1.46.0
-rapidfuzz==3.9.3
-pandas>=2.0
+rapidfuzz
+
