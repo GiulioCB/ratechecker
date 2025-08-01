@@ -47,37 +47,9 @@ def add_months(d: datetime, n: int) -> datetime:
     m = (d.month - 1 + n) % 12 + 1
     return datetime(y, m, 1)
 
-def get_first_full_month(start: datetime) -> datetime:
-    # If start is not the 1st, start from next month; else start from this month
-    return add_months(first_of_month(start), 0 if start.day == 1 else 1)
-
-def generate_dates(start: datetime, months: int):
-    """
-    Exactly 2 dates per month:
-      - one weekday (Sun–Thu)
-      - one weekend day (Fri/Sat)
-    Deterministic (stable) per month using a month-based random seed.
-    """
-    out = []
-    first_month = get_first_full_month(start)
-    for i in range(months):
-        month_start = add_months(first_month, i)
-        _, last_day = monthrange(month_start.year, month_start.month)
-        month_end = month_start.replace(day=last_day)
-
-        month_days = list(pd.date_range(month_start, month_end, freq="D"))
-        weekdays = [d for d in month_days if d.weekday() in [6, 0, 1, 2, 3]]  # Sun..Thu
-        weekends = [d for d in month_days if d.weekday() in [4, 5]]           # Fri, Sat
-
-        # deterministic pick per month (seed = YYYYMM)
-        seed = int(month_start.strftime("%Y%m"))
-        rng = random.Random(seed)
-
-        if weekdays:
-            out.append(rng.choice(weekdays).to_pydatetime())
-        if weekends:
-            out.append(rng.choice(weekends).to_pydatetime())
-    return out
+def month_end(d: datetime) -> datetime:
+    _, last = monthrange(d.year, d.month)
+    return d.replace(day=last)
 
 def normalize_date_text(text: str):
     """
@@ -101,6 +73,84 @@ def normalize_date_text(text: str):
     dates_sorted = sorted(dates)
     normalized = "\n".join([d.strftime("%d.%m.%Y") for d in dates_sorted])
     return dates_sorted, normalized
+
+def pick_two_dates_for_month(month_start: datetime, after_dt: datetime | None = None):
+    """
+    Pick 2 dates in the month:
+      - one weekday (Sun–Thu = 6,0,1,2,3)
+      - one weekend (Fri/Sat = 4,5)
+    If one bucket is empty, fall back to any remaining days to still return 2 unique dates.
+    `after_dt`: if provided, only consider days strictly > after_dt.
+    Returns list[datetime] (len 1 or 2 if limited).
+    """
+    ms = month_start
+    me = month_end(month_start)
+    all_days = list(pd.date_range(ms, me, freq="D"))
+    if after_dt is not None:
+        all_days = [d for d in all_days if d.to_pydatetime() > after_dt]
+
+    weekdays = [d for d in all_days if d.weekday() in [6, 0, 1, 2, 3]]
+    weekends = [d for d in all_days if d.weekday() in [4, 5]]
+
+    # deterministic seed per YYYYMM for stable randomness
+    seed = int(ms.strftime("%Y%m"))
+    rng = random.Random(seed)
+
+    chosen = []
+    if weekdays:
+        chosen.append(rng.choice(weekdays).to_pydatetime())
+    if weekends:
+        w = rng.choice(weekends).to_pydatetime()
+        # ensure two unique dates
+        if w not in chosen:
+            chosen.append(w)
+
+    # fallback to fill up to 2
+    if len(chosen) < 2:
+        remaining = [d.to_pydatetime() for d in all_days if d.to_pydatetime() not in chosen]
+        if remaining:
+            rng.shuffle(remaining)
+            while len(chosen) < 2 and remaining:
+                chosen.append(remaining.pop())
+
+    # return sorted for consistency
+    return sorted(chosen)
+
+def generate_dates_rule(start: datetime, months: int):
+    """
+    Rule:
+      - If fewer than 7 days remain in the start month (strictly after the start date),
+        skip this month and start from next month.
+      - Otherwise, include current month but pick only dates strictly after the chosen start.
+      - Always return exactly 2 dates per month (fallback if a bucket is empty).
+    """
+    # Decide whether to include the start month
+    end_curr = month_end(start)
+    days_after = (end_curr - start).days  # strictly after start
+    include_current = days_after >= 7
+
+    out = []
+
+    # First month
+    if include_current:
+        ms = first_of_month(start)
+        out.extend(pick_two_dates_for_month(ms, after_dt=start))
+
+        # Next months (full months)
+        base_month = add_months(ms, 1)
+        for i in range(months - 1):
+            msi = add_months(base_month, i)
+            out.extend(pick_two_dates_for_month(msi, after_dt=None))
+    else:
+        # Start from next full month
+        base_month = add_months(first_of_month(start), 1)
+        for i in range(months):
+            msi = add_months(base_month, i)
+            out.extend(pick_two_dates_for_month(msi, after_dt=None))
+
+    # Ensure sorted, unique
+    out = sorted(set(out))
+    return out
 
 # ---------------------------
 # Import the Booking.com scraper helpers
@@ -135,7 +185,6 @@ BOOKING_URL_HELP = (
 # ---------------------------
 # Password protection (custom black landing screen)
 # ---------------------------
-# Store a SHA-256 hash of your password here:
 correct_password_hash = "7fc07a0115c0f866be8e4c728e6504769118b47d066f1104f11a193fe4b704a3"
 
 def check_password(pwd: str) -> bool:
@@ -151,30 +200,55 @@ if not st.session_state.authenticated:
     st.markdown(
         """
         <style>
+        /* Full black background */
         html, body, [data-testid="stAppViewContainer"] {
             background-color: #000000 !important;
+            height: 100%;
         }
+
+        /* Remove Streamlit’s default top/bottom padding so we can center perfectly */
+        [data-testid="stAppViewContainer"] .block-container {
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+            height: 50vh;          /* take the full viewport height */
+        }
+
+        /* Center the hero exactly in the middle of the viewport */
         .hero {
-            min-height: 88vh;
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
+            height: 100vh;          /* full height */
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center; /* vertical + horizontal center */
             text-align: center;
             color: #e5e5e5;
         }
+
         .hero h1 {
-            font-size: 3rem; font-weight: 800; letter-spacing: 0.5px;
-            margin-bottom: 1.25rem;
+            font-size: 3rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            margin: 0 0 1.25rem 0;  /* no extra top margin */
         }
+
         .hero .btn {
-            display: inline-block; padding: 0.75rem 1.5rem;
-            border-radius: 12px; background: #2563eb; color: #ffffff;
-            font-weight: 600; border: none; cursor: pointer; font-size: 1.05rem;
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            background: #2563eb;
+            color: #ffffff;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            font-size: 1.05rem;
         }
         .hero .btn:hover { filter: brightness(1.05); }
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
     st.markdown('<div class="hero">', unsafe_allow_html=True)
     st.markdown('<h1>Giulios BAR Checker</h1>', unsafe_allow_html=True)
@@ -235,15 +309,19 @@ with col_btn:
 st.session_state.months_to_check = months_to_check
 st.session_state.current_start_date = st.session_state.custom_start_date
 
+def _regen_and_apply():
+    """Generate by rule and push into both dates list and textarea (sorted)."""
+    dates = generate_dates_rule(st.session_state.current_start_date, months_to_check)
+    st.session_state.dates = dates
+    st.session_state.last_generated_start = st.session_state.current_start_date
+    st.session_state.last_generated_months = months_to_check
+    st.session_state.date_text = "\n".join(d.strftime("%d.%m.%Y") for d in sorted(dates))
+
 # --- Generate dates only when button is pressed, or on first load ---
 if "dates" not in st.session_state:
-    st.session_state.dates = generate_dates(st.session_state.current_start_date, months_to_check)
-    st.session_state.last_generated_start = st.session_state.current_start_date
-    st.session_state.last_generated_months = months_to_check
+    _regen_and_apply()
 elif regen_clicked:
-    st.session_state.dates = generate_dates(st.session_state.current_start_date, months_to_check)
-    st.session_state.last_generated_start = st.session_state.current_start_date
-    st.session_state.last_generated_months = months_to_check
+    _regen_and_apply()
 else:
     # Inputs changed, but user hasn't clicked regenerate: keep old dates
     if (st.session_state.get("last_generated_start") != st.session_state.current_start_date or
@@ -255,12 +333,12 @@ else:
 # ---------------------------
 st.markdown(f"### {RANDOM_DATES}")
 
-# Initialize date_text state with sorted generated dates
+# Text area bound to session state; initialize if missing
 if "date_text" not in st.session_state:
-    init_sorted_text = "\n".join([d.strftime("%d.%m.%Y") for d in sorted(st.session_state.dates)])
-    st.session_state.date_text = init_sorted_text
+    st.session_state.date_text = "\n".join(
+        d.strftime("%d.%m.%Y") for d in sorted(st.session_state.dates)
+    )
 
-# Text area bound to session state
 user_text = st.text_area(MANUAL_INPUT, value=st.session_state.date_text,
                          height=150, help=INPUT_HINT, key="date_text")
 
