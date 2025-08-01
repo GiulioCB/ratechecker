@@ -5,8 +5,13 @@ services:
     buildCommand: |
       pip install --upgrade pip
       pip install --only-binary=:all: -r requirements.txt
-      python -m playwright install --with-deps chromium
-    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    startCommand: |
+      bash -lc '
+        python -m playwright install --with-deps chromium || true
+        streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+      '
     envVars:
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: "0"
+      - key: PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS
+        value: "true"
