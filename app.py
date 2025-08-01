@@ -1,4 +1,5 @@
 
+
 # app.py
 import asyncio
 import hashlib
@@ -9,6 +10,7 @@ import pandas as pd
 import streamlit as st
 import sys
 import os, subprocess
+from calendar import monthrange
 
 # ---------------------------
 # Ensure Playwright Chromium is available (Render)
@@ -35,7 +37,53 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
+# ---------------------------
+# Month/date helpers
+# ---------------------------
+def first_of_month(d: datetime) -> datetime:
+    return d.replace(day=1)
+
+def add_months(d: datetime, n: int) -> datetime:
+    # exact month increment (no 32‑day heuristics)
+    y = d.year + (d.month - 1 + n) // 12
+    m = (d.month - 1 + n) % 12 + 1
+    return datetime(y, m, 1)
+
+def get_first_full_month(start: datetime) -> datetime:
+    # If start is not the 1st, start from next month; else start from this month
+    return add_months(first_of_month(start), 0 if start.day == 1 else 1)
+
+def generate_dates(start: datetime, months: int):
+    """
+    Exactly 2 dates per month:
+      - one weekday (Sun–Thu)
+      - one weekend day (Fri/Sat)
+    Deterministic (stable) per month using a month-based random seed.
+    """
+    out = []
+    first_month = get_first_full_month(start)
+    for i in range(months):
+        month_start = add_months(first_month, i)
+        _, last_day = monthrange(month_start.year, month_start.month)
+        month_end = month_start.replace(day=last_day)
+
+        month_days = list(pd.date_range(month_start, month_end, freq="D"))
+        weekdays = [d for d in month_days if d.weekday() in [6, 0, 1, 2, 3]]  # Sun..Thu
+        weekends = [d for d in month_days if d.weekday() in [4, 5]]           # Fri, Sat
+
+        # deterministic pick per month (seed = YYYYMM)
+        seed = int(month_start.strftime("%Y%m"))
+        rng = random.Random(seed)
+
+        if weekdays:
+            out.append(rng.choice(weekdays).to_pydatetime())
+        if weekends:
+            out.append(rng.choice(weekends).to_pydatetime())
+    return out
+
+# ---------------------------
 # Import the Booking.com scraper helpers
+# ---------------------------
 from scraper import scrape_hotels_for_dates, ddmmyyyy
 
 # ---------------------------
@@ -44,61 +92,28 @@ from scraper import scrape_hotels_for_dates, ddmmyyyy
 st.set_page_config(page_title="RateChecker", layout="wide")
 
 # ---------------------------
-# Language switch
+# Text constants (English only)
 # ---------------------------
-lang = st.sidebar.radio("🌐 Sprache / Language", ["Deutsch", "English"])
-
-TEXTS = {
-    "Deutsch": {
-        "title": "🎯 Best Available Rate Checker",
-        "intro": "Diese App wird dir helfen, Non-Member-Hotelraten automatisch zu prüfen.",
-        "login_required": "🔐 Login erforderlich",
-        "password": "Passwort",
-        "login_button": "Einloggen",
-        "success": "✅ Zugriff gewährt! Du kannst nun weiterarbeiten.",
-        "date_section": "🗓️ Zeitraum & Zufallsdaten",
-        "choose_start": "Startdatum wählen",
-        "how_many_months": "Wie viele Monate prüfen?",
-        "random_dates": "🗓️ Zufällige Buchungsdaten:",
-        "date": "Datum",
-        "weekday": "Wochentag",
-        "manual_input": "Manuelle Eingabe von zusätzlichen Buchungsdaten",
-        "input_hint": "Füge hier ein Datum pro Zeile ein (dd.mm.yyyy)",
-        "generate": "Start Web Scraping",
-        "done": "Scraping done. +1 beer for Giulio 🍺",
-        "currency_label": "Währung (leer lassen für EUR)",
-        "hotel_info": "Hotelinfo",
-        "booking_url_help": (
-            "Füge den vollständigen Hotel‑Link von Booking.com ein (optional, aber empfohlen). "
-            "Beispiel: https://www.booking.com/hotel/de/steigenberger-frankfurter-hof.html"
-        ),
-    },
-    "English": {
-        "title": "🎯 Best Available Rate Checker",
-        "intro": "This app helps you check non-member hotel rates automatically.",
-        "login_required": "🔐 Login required",
-        "password": "Password",
-        "login_button": "Login",
-        "success": "✅ Access granted! You can now continue.",
-        "date_section": "🗓️ Date Range & Random Dates",
-        "choose_start": "Choose start date",
-        "how_many_months": "How many months to check?",
-        "random_dates": "🗓️ Random Booking Dates:",
-        "date": "Date",
-        "weekday": "Weekday",
-        "manual_input": "Manual input of additional booking dates",
-        "input_hint": "Add one date per line (dd.mm.yyyy)",
-        "generate": "Start Web Scraping",
-        "done": "Scraping done. Thanks Giulio",
-        "currency_label": "Currency (leave blank for EUR)",
-        "hotel_info": "Hotel info",
-        "booking_url_help": (
-            "Paste the full property link from Booking.com (optional but recommended). "
-            "Example: https://www.booking.com/hotel/de/steigenberger-frankfurter-hof.html"
-        ),
-    },
-}
-T = TEXTS[lang]
+TITLE = "🎯 Best Available Rate Checker"
+INTRO = "This app helps you check non-member hotel rates automatically."
+LOGIN_REQUIRED = "🔐 Login required"
+PASSWORD_LABEL = "Password"
+LOGIN_BUTTON = "Login"
+ACCESS_GRANTED = "✅ Access granted! You can now continue."
+DATE_SECTION = "🗓️ Date Range & Random Dates"
+CHOOSE_START = "Choose start date"
+HOW_MANY_MONTHS = "How many months to check?"
+RANDOM_DATES = "🗓️ Random Booking Dates:"
+MANUAL_INPUT = "Manual input of additional booking dates"
+INPUT_HINT = "Add one date per line (dd.mm.yyyy)"
+GENERATE_BUTTON = "Start Web Scraping"
+DONE_SUCCESS_MSG = "Scraping done. +1 beer for Giulio 🍺"
+CURRENCY_LABEL = "Currency (leave blank for EUR)"
+HOTEL_INFO = "Hotel info"
+BOOKING_URL_HELP = (
+    "Paste the full property link from Booking.com (optional but recommended). "
+    "Example: https://www.booking.com/hotel/de/steigenberger-frankfurter-hof.html"
+)
 
 # ---------------------------
 # Password protection
@@ -111,10 +126,10 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.title(T["title"])
-    st.write(T["intro"])
-    password = st.text_input(T["password"], type="password")
-    if st.button(T["login_button"]):
+    st.title(TITLE)
+    st.write(INTRO)
+    password = st.text_input(PASSWORD_LABEL, type="password")
+    if st.button(LOGIN_BUTTON):
         if check_password(password):
             st.session_state.authenticated = True
             st.rerun()
@@ -125,17 +140,9 @@ if not st.session_state.authenticated:
 # ---------------------------
 # App header
 # ---------------------------
-st.title(T["title"])
-st.success(T["success"])
-st.subheader(T["date_section"])
-
-# ---------------------------
-# Session state for dates
-# ---------------------------
-if "dates" not in st.session_state:
-    st.session_state.dates = []
-    st.session_state.previous_start = None
-    st.session_state.previous_months = None
+st.title(TITLE)
+st.success(ACCESS_GRANTED)
+st.subheader(DATE_SECTION)
 
 # ---------------------------
 # Date selection (dd.mm.yyyy)
@@ -145,63 +152,48 @@ if "custom_start_date" not in st.session_state:
     st.session_state.custom_start_date = default_date
 
 start_date_str = st.session_state.custom_start_date.strftime("%d.%m.%Y")
-new_date_str = st.text_input(f"{T['choose_start']} (dd.mm.yyyy)", value=start_date_str)
+new_date_str = st.text_input(f"{CHOOSE_START} (dd.mm.yyyy)", value=start_date_str)
 try:
     new_date = datetime.strptime(new_date_str, "%d.%m.%Y")
     st.session_state.custom_start_date = new_date
 except ValueError:
     pass
 
-start_date = st.session_state.custom_start_date
-months_to_check = st.slider(T["how_many_months"], 1, 12, 6)
+# --- Months slider + Regenerate button on one row ---
+col_slider, col_btn = st.columns([4, 1])
+with col_slider:
+    months_to_check = st.slider(HOW_MANY_MONTHS, 1, 12,
+                                st.session_state.get("months_to_check", 6))
+with col_btn:
+    regen_clicked = st.button("🔄 Regenerate", use_container_width=True,
+                              help="Generate new random weekday+weekend dates for each month")
 
-# ---------------------------
-# Helpers to generate dates
-# ---------------------------
-def get_first_full_month(start: datetime) -> datetime:
-    if start.day != 1:
-        first_month = (start.replace(day=1) + timedelta(days=32)).replace(day=1)
-    else:
-        first_month = start
-    return first_month
+# Remember current control values (for later checks / messages)
+st.session_state.months_to_check = months_to_check
+st.session_state.current_start_date = st.session_state.custom_start_date
 
-def generate_dates(start: datetime, months: int):
-    dates = []
-    first_month = get_first_full_month(start)
-    for i in range(months):
-        month_start = (first_month + timedelta(days=32 * i)).replace(day=1)
-        month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-        # Weekdays: Sunday (6) to Thursday (3)
-        weekdays = [d for d in pd.date_range(month_start, month_end) if d.weekday() in [6, 0, 1, 2, 3]]
-        # Weekends: Friday (4), Saturday (5)
-        weekends = [d for d in pd.date_range(month_start, month_end) if d.weekday() in [4, 5]]
-        if weekdays: dates.append(random.choice(weekdays))
-        if weekends: dates.append(random.choice(weekends))
-    return dates
-
-# (Re)generate dates when inputs change
-if start_date != st.session_state.previous_start:
-    st.session_state.dates = generate_dates(start_date, months_to_check)
-    st.session_state.previous_start = start_date
-    st.session_state.previous_months = months_to_check
-elif months_to_check != st.session_state.previous_months:
-    diff = months_to_check - st.session_state.previous_months
-    if diff > 0:
-        first_month = get_first_full_month(start_date)
-        st.session_state.dates += generate_dates(
-            first_month + timedelta(days=32 * st.session_state.previous_months), diff
-        )
-    else:
-        st.session_state.dates = st.session_state.dates[: 2 * months_to_check]
-    st.session_state.previous_months = months_to_check
+# --- Generate dates only when button is pressed, or on first load ---
+if "dates" not in st.session_state:
+    st.session_state.dates = generate_dates(st.session_state.current_start_date, months_to_check)
+    st.session_state.last_generated_start = st.session_state.current_start_date
+    st.session_state.last_generated_months = months_to_check
+elif regen_clicked:
+    st.session_state.dates = generate_dates(st.session_state.current_start_date, months_to_check)
+    st.session_state.last_generated_start = st.session_state.current_start_date
+    st.session_state.last_generated_months = months_to_check
+else:
+    # Inputs changed, but user hasn't clicked regenerate: keep old dates
+    if (st.session_state.get("last_generated_start") != st.session_state.current_start_date or
+        st.session_state.get("last_generated_months") != months_to_check):
+        st.info("Dates shown are from the last generation. Click **🔄 Regenerate** to update.")
 
 # ---------------------------
 # Editable random dates area
 # ---------------------------
-st.markdown(f"### {T['random_dates']}")
+st.markdown(f"### {RANDOM_DATES}")
 random_dates_str = "\n".join([d.strftime("%d.%m.%Y") for d in st.session_state.dates])
 edited_dates_str = st.text_area(
-    T["manual_input"], value=random_dates_str, height=150, help=T["input_hint"]
+    MANUAL_INPUT, value=random_dates_str, height=150, help=INPUT_HINT
 )
 
 edited_dates = []
@@ -211,7 +203,10 @@ for line in edited_dates_str.splitlines():
         edited_dates.append(d)
     except Exception:
         pass
-# (optional) debug toggle – placed before hotel input so we can use it for URL warnings
+
+# ---------------------------
+# Debug toggle (needed before hotel input so it can guard URL warnings)
+# ---------------------------
 debug_flag = st.toggle("Debug logs", st.session_state.get("debug_flag", False), key="debug_flag")
 
 # ---------------------------
@@ -222,7 +217,6 @@ BOOKING_URL_RE = re.compile(
     re.IGNORECASE
 )
 
-
 def _canon_booking_url(u: str) -> str:
     """Normalize a Booking property URL (drop querystring and fragments)."""
     if not u:
@@ -232,7 +226,7 @@ def _canon_booking_url(u: str) -> str:
     u = re.sub(r"^https?://[^/]*booking\.com", "https://www.booking.com", u, flags=re.I)
     return u.split("#")[0].split("?")[0]
 
-st.subheader(T["hotel_info"])
+st.subheader(HOTEL_INFO)
 
 default_hotels_df = pd.DataFrame([
     {"hotel": "Steigenberger Icon Frankfurter Hof", "booking_url": ""},
@@ -250,13 +244,13 @@ hotels_df = st.data_editor(
         ),
         "booking_url": st.column_config.TextColumn(
             "Booking.com hotel link",
-            help=T["booking_url_help"],
+            help=BOOKING_URL_HELP,
         ),
     },
     key="hotels_editor",
 )
 
-# Build the list for the scraper
+# Build the list for the scraper (URL warning only in Debug mode)
 hotels_input = []
 for _, row in hotels_df.iterrows():
     name = (row.get("hotel") or "").strip()
@@ -269,47 +263,33 @@ for _, row in hotels_df.iterrows():
     hotels_input.append({"name": name, "url": url})
 
 # ---------------------------
-# Dates table preview
+# Dates table preview (English only)
 # ---------------------------
 all_dates = sorted(set(edited_dates))
-weekday_label = "Wochentag" if lang == "Deutsch" else "Weekday"
-
-if lang == "Deutsch":
-    weekday_map = {
-        "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
-        "Thursday": "Donnerstag", "Friday": "Freitag", "Saturday": "Samstag",
-        "Sunday": "Sonntag",
-    }
-    df_dates = pd.DataFrame(
-        [{"Datum": d.strftime("%d.%m.%Y"), weekday_label: weekday_map[d.strftime("%A")]} for d in all_dates]
-    )
-else:
-    df_dates = pd.DataFrame(
-        [{"Date": d.strftime("%d.%m.%Y"), weekday_label: d.strftime("%A")} for d in all_dates]
-    )
-
+weekday_label = "Weekday"
+df_dates = pd.DataFrame(
+    [{"Date": d.strftime("%d.%m.%Y"), weekday_label: d.strftime("%A")} for d in all_dates]
+)
 st.dataframe(df_dates, use_container_width=True)
 
 # ---------------------------
 # Currency selector (blank -> EUR)
 # ---------------------------
 currency = st.selectbox(
-    T["currency_label"],
+    CURRENCY_LABEL,
     options=["", "EUR", "USD", "GBP", "CHF", "RON", "PLN", "CZK", "HUF", "SEK", "NOK", "DKK"],
     index=0,
 )
 selected_currency = currency or "EUR"
 
-
-
 # ---------------------------
 # Start Web Scraping
 # ---------------------------
-if st.button(T["generate"], type="primary"):
+if st.button(GENERATE_BUTTON, type="primary"):
     # Validate there is at least one hotel name
     hotels_names = [h["name"] for h in hotels_input if h["name"]]
     if not hotels_names:
-        st.warning("Please enter at least one Hotel name.")
+        st.warning("Please enter at least one hotel name.")
         st.stop()
 
     # Validate dates
@@ -323,13 +303,12 @@ if st.button(T["generate"], type="primary"):
         results = asyncio.run(
             scrape_hotels_for_dates(
                 hotels=hotels_input,
-                dates=dates,                       # <— use the actual list of datetimes
+                dates=dates,                       # use the actual list of datetimes
                 selected_currency=selected_currency,
                 debug=debug_flag,
             )
         )
-        total_tasks = len(hotels_input) * len(dates)
-        ok_count = sum(1 for r in results.values() if r.get("status") == "OK")
+
         # Debug table
         debug_rows = []
         for (name, ymd), r in results.items():
@@ -338,7 +317,6 @@ if st.button(T["generate"], type="primary"):
             debug_rows.append({"hotel": name, "date": ymd, "status": status, "reason": reason})
         st.caption("Debug (temporary)")
         st.dataframe(pd.DataFrame(debug_rows), use_container_width=True)
-
 
     # Build output table: rows = dates, columns = hotels (by name)
     out_rows = []
@@ -357,15 +335,18 @@ if st.button(T["generate"], type="primary"):
     st.dataframe(out_df, use_container_width=True)
 
     st.download_button(
-        "Download Excel",
+        "Download CSV",
         out_df.to_csv(index=False).encode("utf-8"),
         file_name=f"booking_rates_{selected_currency}.csv",
         mime="text/csv",
     )
 
+    # Beer messages (all / partial / all OK)
+    total_tasks = len(hotels_input) * len(dates)
+    ok_count = sum(1 for r in results.values() if r.get("status") == "OK")
     if ok_count == 0:
         st.error("No scraping possible. Giulio doesn’t get a beer :(")
     elif ok_count < total_tasks:
         st.warning("Scraping partially done. Giulio gets only half a beer")
     else:
-        st.success(T["done"])  # keep your original success line
+        st.success(DONE_SUCCESS_MSG)
