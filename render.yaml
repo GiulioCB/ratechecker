@@ -3,16 +3,18 @@ services:
     name: ratechecker
     env: python
 
-    # build: only install wheels here (no browsers)
     buildCommand: |
       pip install --upgrade pip
       pip install --only-binary=:all: -r requirements.txt
 
-    # start: ALWAYS download chromium, then start the app
     startCommand: |
-      python -m playwright install --with-deps chromium
+      echo "Installing Chromium for Playwright..." && \
+      PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright \
+      python -m playwright install chromium && \
       streamlit run app.py --server.port $PORT --server.address 0.0.0.0
 
     envVars:
-      - key: PLAYWRIGHT_BROWSERS_PATH   # store browsers under /opt/render/.cache
-        value: "0"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "/opt/render/.cache/ms-playwright"
+      - key: PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS
+        value: "1"

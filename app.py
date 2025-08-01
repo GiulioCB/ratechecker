@@ -8,6 +8,28 @@ import pandas as pd
 import streamlit as st
 # add near your imports
 import sys, asyncio
+# app.py (near the imports)
+import os, subprocess, shutil
+
+def ensure_playwright_chromium():
+    """Install Playwright Chromium at runtime if it's missing."""
+    # Use the same path Render is using
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/render/.cache/ms-playwright")
+    chrome_dir = os.path.join(
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"],
+        "chromium-1129", "chrome-linux", "chrome"  # 1129 is the bundle used by Playwright 1.46
+    )
+    if not os.path.exists(chrome_dir):
+        try:
+            subprocess.run(
+                ["python", "-m", "playwright", "install", "chromium"],
+                check=True
+            )
+        except Exception as e:
+            # Don't crash UI; the actual launch will still error if we truly can't install
+            print(f"[WARN] playwright install failed: {e}")
+
+ensure_playwright_chromium()
 
 # Force Proactor loop on Windows so Playwright can spawn Chromium
 if sys.platform.startswith("win"):
