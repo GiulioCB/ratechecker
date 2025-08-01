@@ -211,6 +211,8 @@ for line in edited_dates_str.splitlines():
         edited_dates.append(d)
     except Exception:
         pass
+# (optional) debug toggle – placed before hotel input so we can use it for URL warnings
+debug_flag = st.toggle("Debug logs", st.session_state.get("debug_flag", False), key="debug_flag")
 
 # ---------------------------
 # Hotel input (Name | Booking.com hotel link)
@@ -259,7 +261,7 @@ hotels_input = []
 for _, row in hotels_df.iterrows():
     name = (row.get("hotel") or "").strip()
     url = _canon_booking_url(row.get("booking_url") or "")
-    if url and not BOOKING_URL_RE.match(url):
+    if url and not BOOKING_URL_RE.match(url) and debug_flag:
         st.warning(
             f"‘{name}’ has a URL that doesn’t look like a Booking property link. "
             "I’ll still try, but consider pasting the full property page URL."
@@ -298,8 +300,7 @@ currency = st.selectbox(
 )
 selected_currency = currency or "EUR"
 
-# (optional) debug toggle
-debug_flag = st.toggle("Debug logs", False)
+
 
 # ---------------------------
 # Start Web Scraping
