@@ -563,7 +563,13 @@ async def scrape_one(hotel: Dict, checkin: datetime, selected_currency: str, deb
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
         context = await browser.new_context(
             locale="de-DE",
