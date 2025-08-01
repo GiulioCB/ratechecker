@@ -215,7 +215,11 @@ for line in edited_dates_str.splitlines():
 # ---------------------------
 # Hotel input (Name | Booking.com hotel link)
 # ---------------------------
-BOOKING_URL_RE = re.compile(r"https?://(www\.)?booking\.com/.+?/hotel/.+\.html", re.I)
+BOOKING_URL_RE = re.compile(
+    r"^https?://[^/]*booking\.com/(?:[^/]+/)?hotel/[^/?#]+\.html(?:[?#].*)?$",
+    re.IGNORECASE
+)
+
 
 def _canon_booking_url(u: str) -> str:
     """Normalize a Booking property URL (drop querystring and fragments)."""
@@ -323,7 +327,8 @@ if st.button(T["generate"], type="primary"):
                 debug=debug_flag,
             )
         )
-
+        total_tasks = len(hotels_input) * len(dates)
+        ok_count = sum(1 for r in results.values() if r.get("status") == "OK")
         # Debug table
         debug_rows = []
         for (name, ymd), r in results.items():
@@ -354,4 +359,9 @@ if st.button(T["generate"], type="primary"):
         mime="text/csv",
     )
 
-    st.success(T["done"])
+    if ok_count == 0:
+        st.error("No scraping possible. Giulio doesn’t get a beer :(")
+    elif ok_count < total_tasks:
+        st.warning("Scraping partially done. Giulio gets only half a beer")
+    else:
+        st.success(T["done"])  # keep your original success line

@@ -19,7 +19,7 @@ if sys.platform.startswith("win"):
         pass
 
 # ---------- Tuning ----------
-NUM_CONCURRENCY = 2
+NUM_CONCURRENCY = 4
 
 def canonicalize_booking_url(u: Optional[str]) -> Optional[str]:
     if not u:
@@ -378,102 +378,128 @@ def _pagename_from_url(url: str) -> Optional[str]:
 
 async def graphql_availability_price(page: Page, checkin: datetime, days: int = 31, debug: bool = False) -> Optional[dict]:
     """
-    Call Booking's AvailabilityCalendar for the currently open property page.
-    Returns dict with per-night and total (incl. taxes/charges) if available,
-    or {"error": "..."} on a known non-availability condition.
+    Try Booking's AvailabilityCalendar for the open property page.
+    We do up to 3 attempts with different windows to avoid 'date_not_in_calendar'.
     """
-    html = await page.content()
-    toks = _extract_property_tokens_from_html(html)
+    def _extract_property_tokens_from_html(html: str) -> dict:
+        toks: Dict[str, str] = {}
+        for pat in [r"b_csrf_token:\s*'([^']+)'", r'b_csrf_token:\s*"([^"]+)"', r'"b_csrf_token"\s*:\s*"([^"]+)"']:
+            m = re.search(pat, html)
+            if m: toks["csrf"] = m.group(1); break
+        for pat in [r'hotelName:\s*"([^"]+)"', r"hotelName:\s*'([^']+)'", r'"hotelName"\s*:\s*"([^"]+)"']:
+            m = re.search(pat, html)
+            if m: toks["pagename"] = m.group(1); break
+        for pat in [r'hotelCountry:\s*"([^"]+)"', r"hotelCountry:\s*'([^']+)'", r'"hotelCountry"\s*:\s*"([^"]+)"']:
+            m = re.search(pat, html)
+            if m: toks["country"] = m.group(1); break
+        return toks
 
-    # If pagename missing, try to read from URL
-    if "pagename" not in toks:
-        p = _pagename_from_url(page.url)
-        if p:
-            toks["pagename"] = p
+    def _pagename_from_url(url: str) -> Optional[str]:
+        try:
+            path = urlparse(url).path
+            if "/hotel/" in path and path.endswith(".html"):
+                return path.split("/")[-1].replace(".html", "")
+        except Exception:
+            pass
+        return None
 
-    if debug:
-        print("GQL tokens:", toks)
+    async def _do_query(start_date: datetime, span_days: int) -> dict:
+        html = await page.content()
+        toks = _extract_property_tokens_from_html(html)
+        if "pagename" not in toks:
+            p = _pagename_from_url(page.url)
+            if p: toks["pagename"] = p
+        if debug: print("GQL tokens:", toks)
 
-    if not {"pagename", "csrf"}.issubset(toks.keys()):
-        return {"error": "tokens_not_found"}
+        if not {"pagename", "csrf"}.issubset(toks.keys()):
+            return {"error": "tokens_not_found"}
 
-    country = toks.get("country") or ""
+        country = toks.get("country") or ""
 
-    body = {
-        "operationName": "AvailabilityCalendar",
-        "variables": {
-            "input": {
-                "travelPurpose": 2,
-                "pagenameDetails": {
-                    "countryCode": country,
-                    "pagename": toks["pagename"],
-                },
-                "searchConfig": {
-                    "searchConfigDate": {
-                        "startDate": checkin.strftime("%Y-%m-%d"),
-                        "amountOfDays": days,
+        body = {
+            "operationName": "AvailabilityCalendar",
+            "variables": {
+                "input": {
+                    "travelPurpose": 2,
+                    "pagenameDetails": {
+                        "countryCode": country,
+                        "pagename": toks["pagename"],
                     },
-                    "nbAdults": 2,
-                    "nbRooms": 1,
-                },
-            }
-        },
-        "extensions": {},
-        "query": (
-            "query AvailabilityCalendar($input: AvailabilityCalendarQueryInput!) {"
-            "  availabilityCalendar(input: $input) {"
-            "    ... on AvailabilityCalendarQueryResult {"
-            "      days { available avgPriceFormatted checkin minLengthOfStay __typename }"
-            "      __typename"
-            "    }"
-            "    ... on AvailabilityCalendarQueryError { message __typename }"
-            "    __typename"
-            "  }"
-            "}"
-        ),
-    }
+                    "searchConfig": {
+                        "searchConfigDate": {
+                            "startDate": start_date.strftime("%Y-%m-%d"),
+                            "amountOfDays": span_days,
+                        },
+                        "nbAdults": 2,
+                        "nbRooms": 1,
+                    },
+                }
+            },
+            "extensions": {},
+            "query": (
+                "query AvailabilityCalendar($input: AvailabilityCalendarQueryInput!) {"
+                "  availabilityCalendar(input: $input) {"
+                "    ... on AvailabilityCalendarQueryResult {"
+                "      days { available avgPriceFormatted checkin minLengthOfStay __typename }"
+                "      __typename"
+                "    }"
+                "    ... on AvailabilityCalendarQueryError { message __typename }"
+                "    __typename"
+                "  }"
+                "}"
+            ),
+        }
 
-    resp = await page.context.request.post(
-        "https://www.booking.com/dml/graphql?lang=de-de",
-        data=json.dumps(body, separators=(",", ":")),
-        headers={
-            "content-type": "application/json",
-            "x-booking-csrf-token": toks["csrf"],
-            "origin": "https://www.booking.com",
-            "referer": page.url.split("?")[0],
-        },
-    )
+        resp = await page.context.request.post(
+            "https://www.booking.com/dml/graphql?lang=de-de",
+            data=json.dumps(body, separators=(",", ":")),
+            headers={
+                "content-type": "application/json",
+                "x-booking-csrf-token": toks["csrf"],
+                "origin": "https://www.booking.com",
+                "referer": page.url.split("?")[0],
+            },
+        )
+        if not resp.ok:
+            return {"error": f"http_{resp.status}"}
 
-    if not resp.ok:
-        return {"error": f"http_{resp.status}"}
+        data = await resp.json()
+        days_data = data.get("data", {}).get("availabilityCalendar", {}).get("days", [])
+        target = next((d for d in days_data if d.get("checkin") == checkin.strftime("%Y-%m-%d")), None)
+        if not target:
+            return {"error": "date_not_in_calendar"}
 
-    data = await resp.json()
-    days_data = (
-        data.get("data", {})
-        .get("availabilityCalendar", {})
-        .get("days", [])
-    )
+        if not target.get("available", 0):
+            return {"error": "sold_out"}
 
-    target = next((d for d in days_data if d.get("checkin") == checkin.strftime("%Y-%m-%d")), None)
-    if not target:
-        return {"error": "date_not_in_calendar"}
+        per_night = parse_money_max(target.get("avgPriceFormatted", "") or "")
+        if per_night is None:
+            return {"error": "price_not_found"}
 
-    if not target.get("available", 0):
-        return {"error": "sold_out"}
+        minlos = int(target.get("minLengthOfStay") or 1)
+        total = round(per_night * minlos, 2)
+        return {
+            "nights_queried": minlos,
+            "minstay_applied": (minlos > 1),
+            "total_incl_taxes": total,
+            "per_night": round(total / minlos, 2),
+        }
 
-    per_night = parse_money_max(target.get("avgPriceFormatted", "") or "")
-    if per_night is None:
-        return {"error": "price_not_found"}
+    # Try 3 windows: exact day, that month's window, and a wider window starting 31 days earlier
+    for start, span in [
+        (checkin, max(31, days)),
+        (checkin.replace(day=1), 62),
+        (checkin - timedelta(days=31), 93),
+    ]:
+        res = await _do_query(start, span)
+        if "error" not in res:
+            return res
+        if debug:
+            print(f"GQL attempt start={start.date()} span={span}: {res}")
 
-    minlos = int(target.get("minLengthOfStay") or 1)
-    total = round(per_night * minlos, 2)
+    # If all fail, return the last error
+    return res
 
-    return {
-        "nights_queried": minlos,
-        "minstay_applied": (minlos > 1),
-        "total_incl_taxes": total,
-        "per_night": round(total / minlos, 2),
-    }
 
 
 # ---------- Main price getter for a property & dates ----------
