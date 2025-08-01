@@ -204,81 +204,54 @@ if "show_password" not in st.session_state:
     st.session_state.show_password = False
 
 if not st.session_state.authenticated:
-    # Full-black background + centered hero
-    # Encode background image as data URL so it works on Render
-    BG_B64 = _b64_image("assets/landing_bg.jpg")
-
+    # Center the REAL Streamlit container (not a custom div)
     st.markdown(
-        f"""
+        """
         <style>
-        /* Remove Streamlit scroll & padding */
-        html, body {{ height: 100%; overflow: hidden; }}
-        [data-testid="stAppViewContainer"] .block-container {{
+        /* Full-viewport, no scroll on the landing page */
+        html, body { height: 100%; overflow: hidden; }
+
+        /* Center the Streamlit "block-container" itself */
+        [data-testid="stAppViewContainer"] .block-container {
+            max-width: 100vw !important;
             padding: 0 !important;
             margin: 0 !important;
-        }}
 
-        /* Fixed full-viewport wrapper */
-        .landing {{
-            position: fixed;
-            inset: 0;
-            height: 100dvh;               /* dynamic viewport height for desktop+mobile */
-            width: 100vw;
+            /* Flex center */
             display: flex;
-            align-items: center;           /* vertical centering */
-            justify-content: center;       /* horizontal centering */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
 
-            /* Background image + dark overlay for readability */
-            background:
-            linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
-            url("data:image/jpeg;base64,{BG_B64}") center / cover no-repeat fixed;
-        }}
+            height: 100dvh;  /* dynamic vh to avoid browser UI issues */
+            background: #0b0f1a; /* near-black */
+        }
 
-        .hero {{
-            text-align: center;
-            color: #e5e5e5;
-        }}
-        .hero h1 {{
-            font-size: 3rem;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            margin: 0 0 1.25rem 0;
-            text-shadow: 0 2px 10px rgba(0,0,0,.6);
-        }}
-        .hero .btn {{
-            display: inline-block;
-            padding: 0.75rem 1.5rem;
-            border-radius: 12px;
-            background: #2563eb;
-            color: #ffffff;
-            font-weight: 600;
-            border: none;
-            cursor: pointer;
-            font-size: 1.05rem;
-            box-shadow: 0 4px 16px rgba(0,0,0,.35);
-        }}
-        .hero .btn:hover {{ filter: brightness(1.05); }}
+        /* Center title and widgets */
+        h1 { text-align: center; margin: 0 0 1.25rem 0; }
 
-        .hero .stButton, .hero .stTextInput {{ display: inline-block; }}
-        .hero .stTextInput {{ width: 320px; margin-top: 0.75rem; }}
+        /* Center the Access button */
+        div.stButton { display: flex; justify-content: center; width: 100%; }
+        div.stButton > button {
+            padding: 0.75rem 1.5rem; border-radius: 12px; font-weight: 600;
+        }
+
+        /* Center the password input when shown */
+        div.stTextInput { display: flex; justify-content: center; width: 100%; }
+        div.stTextInput > div { width: 320px; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
+    # Standard Streamlit widgets now appear centered by the CSS above
+    st.title("Giulios BAR Checker")
 
-
-    st.markdown('<div class="hero">', unsafe_allow_html=True)
-    st.markdown('<h1>Giulios BAR Checker</h1>', unsafe_allow_html=True)
-
-    # Access button centered
     access_clicked = st.button("Access", key="access_btn")
-
     if access_clicked:
         st.session_state.show_password = True
 
-    if st.session_state.show_password:
-        # Password input and Go button (centered under Access)
+    if st.session_state.get("show_password"):
         pwd = st.text_input("Password", type="password", label_visibility="collapsed")
         go = st.button("Go →", key="go_btn")
         if go:
@@ -289,8 +262,8 @@ if not st.session_state.authenticated:
             else:
                 st.error("❌ Wrong password")
 
-    st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
+
 
 # ---------------------------
 # App header (post-login)
@@ -330,10 +303,14 @@ st.session_state.current_start_date = st.session_state.custom_start_date
 def _regen_and_apply():
     """Generate by rule and push into both dates list and textarea (sorted)."""
     dates = generate_dates_rule(st.session_state.current_start_date, months_to_check)
+    dates = sorted(dates)
     st.session_state.dates = dates
     st.session_state.last_generated_start = st.session_state.current_start_date
     st.session_state.last_generated_months = months_to_check
-    st.session_state.date_text = "\n".join(d.strftime("%d.%m.%Y") for d in sorted(dates))
+    # keep textarea & parsed list aligned (before the widget is created)
+    st.session_state.date_text = "\n".join(d.strftime("%d.%m.%Y") for d in dates)
+    st.session_state.parsed_dates = dates
+
 
 # --- Generate dates only when button is pressed, or on first load ---
 if "dates" not in st.session_state:
@@ -347,27 +324,39 @@ else:
         st.info("Dates shown are from the last generation. Click **🔄 Regenerate** to update.")
 
 # ---------------------------
-# Editable random dates area (ALWAYS sorted)
+# Editable random dates area (ALWAYS sorted) — with callback
 # ---------------------------
 st.markdown(f"### {RANDOM_DATES}")
 
-# Text area bound to session state; initialize if missing
+# Initialize textarea state on first load
 if "date_text" not in st.session_state:
-    st.session_state.date_text = "\n".join(
-        d.strftime("%d.%m.%Y") for d in sorted(st.session_state.dates)
-    )
+    st.session_state.date_text = "\n".join(d.strftime("%d.%m.%Y") for d in sorted(st.session_state.dates))
 
-user_text = st.text_area(MANUAL_INPUT, value=st.session_state.date_text,
-                         height=150, help=INPUT_HINT, key="date_text")
+# Keep a parsed list in state too (so we don't parse on every render)
+if "parsed_dates" not in st.session_state:
+    # initial parse from date_text
+    _init_parsed, _init_norm = normalize_date_text(st.session_state.date_text)
+    st.session_state.parsed_dates = _init_parsed
+    st.session_state.date_text = _init_norm  # ensure normalized from the start
 
-# Normalize and enforce chronological order
-parsed_dates, normalized_text = normalize_date_text(user_text)
-if user_text.strip() != normalized_text.strip():
-    st.session_state.date_text = normalized_text
-    st.rerun()
+def _normalize_dates_cb():
+    """Normalize textarea content to chronological order & update parsed list."""
+    parsed, normalized = normalize_date_text(st.session_state.date_text)
+    st.session_state.parsed_dates = parsed
+    st.session_state.date_text = normalized
 
-# Use the parsed, sorted dates from the normalized text
-edited_dates = parsed_dates
+# Show the textarea; normalization happens in the callback
+st.text_area(
+    MANUAL_INPUT,
+    key="date_text",
+    height=150,
+    help=INPUT_HINT,
+    on_change=_normalize_dates_cb,
+)
+
+# Use the parsed, sorted dates from state
+edited_dates = st.session_state.parsed_dates
+
 
 # ---------------------------
 # Debug toggle (needed before hotel input so it can guard URL warnings)
