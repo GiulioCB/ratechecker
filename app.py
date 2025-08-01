@@ -333,9 +333,12 @@ if st.button(T["generate"], type="primary"):
         # Debug table
         debug_rows = []
         for (name, ymd), r in results.items():
-            debug_rows.append({"hotel": name, "date": ymd, "status": r.get("status"), "reason": r.get("reason")})
+            status = r.get("status") if isinstance(r, dict) else "No rate found"
+            reason = r.get("reason") if isinstance(r, dict) else "unexpected_none_result"
+            debug_rows.append({"hotel": name, "date": ymd, "status": status, "reason": reason})
         st.caption("Debug (temporary)")
         st.dataframe(pd.DataFrame(debug_rows), use_container_width=True)
+
 
     # Build output table: rows = dates, columns = hotels (by name)
     out_rows = []

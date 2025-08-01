@@ -240,82 +240,118 @@ async def _is_inside_calendar(el: Page.locator) -> bool:
 # === REPLACE your strict_cheapest_per_night with this version ===
 async def strict_cheapest_per_night(page: Page, nights: int, debug: bool = False):
     """
-    Read 'Today's price' ONLY from *room rows* (same ancestor as the quantity <select>),
-    explicitly ignoring calendar/approx widgets and dialogs/tooltips.
-
-    Returns (total_for_stay, per_night) or None if nothing found.
+    Prefer prices that live in the room rows. If quantity <select> rows are not
+    quickly available, fallback to scanning visible price cells within the
+    availability container, while excluding calendars and dialogs.
+    Returns (total_for_stay, per_night) or None.
     """
     candidates: list[float] = []
 
-    # Wait until the room table is usable (a quantity <select> shows up)
+    # --- Phase 1: quick attempt using <select> based rows (max ~6-8s) ---
     try:
-        await page.wait_for_selector("select", timeout=12000)
-    except:
-        return None
+        await page.wait_for_selector("select", timeout=6000)
+        qty_selects = page.locator("select").filter(
+            has=page.locator("option[value='0'], option:has-text('0')")
+        )
+        cnt = await qty_selects.count()
 
-    # Every valid room row has a quantity <select> with numeric options.
-    qty_selects = page.locator("select").filter(
-        has=page.locator("option[value='0'], option:has-text('0')")  # robust across locales/markups
-    )
+        for i in range(cnt):
+            sel = qty_selects.nth(i)
+            row = sel.locator(
+                "xpath=ancestor::*[self::tr or self::div]"
+                "[descendant::select]"
+                "[descendant::*["
+                "  @data-testid='price-and-discounted-price' or "
+                "  contains(@data-testid,'price-for') or "
+                "  contains(@class,'bui-price-display__value') or "
+                "  contains(@class,'prco-ltr-right-align-helper') or "
+                "  contains(@class,'prco-valign-middle-helper')"
+                "]]"
+            ).first
 
-    cnt = await qty_selects.count()
-    for i in range(cnt):
-        sel = qty_selects.nth(i)
+            # Skip if inside calendar/dialog
+            if await row.locator(
+                "xpath=ancestor-or-self::*["
+                "  contains(@data-testid,'calendar') or "
+                "  @role='dialog'"
+                "]"
+            ).count():
+                if debug:
+                    print(f"[row {i}] skipped (calendar/dialog ancestor)")
+                continue
 
-        # Go to the *row container* that both:
-        #  - contains this select,
-        #  - also contains a price element we recognise.
-        row = sel.locator(
-            "xpath=ancestor::*[self::tr or self::div]"
-            "[descendant::select]"
-            "[descendant::*["
-            "  @data-testid='price-and-discounted-price' or "
-            "  contains(@data-testid,'price-for') or "
-            "  contains(@class,'bui-price-display__value') or "
-            "  contains(@class,'prco-ltr-right-align-helper') or "
-            "  contains(@class,'prco-valign-middle-helper')"
-            "]]"
-        ).first
+            price_el = row.locator(
+                ":is([data-testid='price-and-discounted-price'], "
+                "[data-testid*='price-for'], "
+                ".bui-price-display__value, "
+                ".prco-ltr-right-align-helper, "
+                ".prco-valign-middle-helper)"
+            ).first
 
-        # Extra guard: skip if this 'row' sits inside any calendar/dialog overlay.
-        if await row.locator(
-            "xpath=ancestor-or-self::*["
-            "  contains(@data-testid,'calendar') or "
-            "  @role='dialog' or "
-            "  contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'approx') or "
-            "  contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ungef')"
-            "]"
-        ).count():
+            if await price_el.count() == 0:
+                continue
+
+            # Use text_content with a short timeout to avoid 30s hangs
+            try:
+                text = await price_el.text_content(timeout=2000)
+                text = (text or "").strip()
+            except Exception:
+                continue
+
+            val = parse_money_max(text)
             if debug:
-                print(f"[row {i}] skipped (calendar/dialog ancestor)")
-            continue
+                print(f"[row {i}] price cell: {text[:160]!r} -> {val}")
+            if val is not None:
+                candidates.append(val)
+    except Exception:
+        # No <select> in time -> fall back
+        pass
 
-        # Now read the price element(s) INSIDE THIS ROW ONLY
-        price_el = row.locator(
-            ":is([data-testid='price-and-discounted-price'], "
-            "[data-testid*='price-for'], "
-            ".bui-price-display__value, "
-            ".prco-ltr-right-align-helper, "
-            ".prco-valign-middle-helper)"
-        ).first
+    # --- Phase 2: fallback - scan visible price cells within availability container ---
+    if not candidates:
+        try:
+            container = page.locator("#hp_availability, [data-component='hotel/new-rooms-table']")
+            # Common price cells; stay inside container; exclude calendars/dialogs via ancestor checks when possible
+            price_cells = container.locator(
+                ":is([data-testid='price-and-discounted-price'], "
+                "[data-testid*='price-for'], "
+                ".bui-price-display__value, "
+                ".prco-ltr-right-align-helper, "
+                ".prco-valign-middle-helper)"
+            )
+            n = await price_cells.count()
+            for i in range(min(n, 60)):
+                el = price_cells.nth(i)
+                # Skip invisible
+                if not await el.is_visible():
+                    continue
+                # Skip if nested under a calendar/dialog
+                if await el.locator(
+                    "xpath=ancestor-or-self::*["
+                    "  contains(@data-testid,'calendar') or "
+                    "  @role='dialog'"
+                    "]"
+                ).count():
+                    continue
+                try:
+                    text = await el.text_content(timeout=1500)
+                    text = (text or "").strip()
+                except Exception:
+                    continue
+                val = parse_money_max(text)
+                if debug and val is not None:
+                    print(f"[fallback cell {i}] -> {val}")
+                if val is not None:
+                    candidates.append(val)
+        except Exception:
+            pass
 
-        if await price_el.count() == 0:
-            continue
-
-        text = (await price_el.inner_text()).strip()
-        val = parse_money_max(text)
-        if debug:
-            print(f"[row {i}] price cell: {text[:160]!r} -> {val}")
-
-        if val is not None:
-            candidates.append(val)
-
-    # If still nothing, give up (do NOT fall back to page‑wide prices; they can include calendar)
     if not candidates:
         return None
 
-    total = min(candidates)  # pick the cheapest row price for the stay
+    total = min(candidates)
     return total, round(total / nights, 2) if nights else None
+
 
 
 # ---------- GraphQL fallback ----------
@@ -378,20 +414,27 @@ def _pagename_from_url(url: str) -> Optional[str]:
 
 async def graphql_availability_price(page: Page, checkin: datetime, days: int = 31, debug: bool = False) -> Optional[dict]:
     """
-    Try Booking's AvailabilityCalendar for the open property page.
-    We do up to 3 attempts with different windows to avoid 'date_not_in_calendar'.
+    Query Booking's AvailabilityCalendar for the open property page.
+    - Guards against bad/empty JSON (no more 'NoneType .get').
+    - Tries multiple windows so 'date_not_in_calendar' occurs far less often.
     """
     def _extract_property_tokens_from_html(html: str) -> dict:
         toks: Dict[str, str] = {}
         for pat in [r"b_csrf_token:\s*'([^']+)'", r'b_csrf_token:\s*"([^"]+)"', r'"b_csrf_token"\s*:\s*"([^"]+)"']:
             m = re.search(pat, html)
-            if m: toks["csrf"] = m.group(1); break
+            if m:
+                toks["csrf"] = m.group(1)
+                break
         for pat in [r'hotelName:\s*"([^"]+)"', r"hotelName:\s*'([^']+)'", r'"hotelName"\s*:\s*"([^"]+)"']:
             m = re.search(pat, html)
-            if m: toks["pagename"] = m.group(1); break
+            if m:
+                toks["pagename"] = m.group(1)
+                break
         for pat in [r'hotelCountry:\s*"([^"]+)"', r"hotelCountry:\s*'([^']+)'", r'"hotelCountry"\s*:\s*"([^"]+)"']:
             m = re.search(pat, html)
-            if m: toks["country"] = m.group(1); break
+            if m:
+                toks["country"] = m.group(1)
+                break
         return toks
 
     def _pagename_from_url(url: str) -> Optional[str]:
@@ -408,8 +451,10 @@ async def graphql_availability_price(page: Page, checkin: datetime, days: int = 
         toks = _extract_property_tokens_from_html(html)
         if "pagename" not in toks:
             p = _pagename_from_url(page.url)
-            if p: toks["pagename"] = p
-        if debug: print("GQL tokens:", toks)
+            if p:
+                toks["pagename"] = p
+        if debug:
+            print("GQL tokens:", toks)
 
         if not {"pagename", "csrf"}.issubset(toks.keys()):
             return {"error": "tokens_not_found"}
@@ -463,8 +508,15 @@ async def graphql_availability_price(page: Page, checkin: datetime, days: int = 
         if not resp.ok:
             return {"error": f"http_{resp.status}"}
 
-        data = await resp.json()
-        days_data = data.get("data", {}).get("availabilityCalendar", {}).get("days", [])
+        try:
+            data = await resp.json()
+        except Exception:
+            return {"error": "bad_json"}
+
+        if not isinstance(data, dict):
+            return {"error": "bad_json"}
+
+        days_data = data.get("data", {}).get("availabilityCalendar", {}).get("days", []) or []
         target = next((d for d in days_data if d.get("checkin") == checkin.strftime("%Y-%m-%d")), None)
         if not target:
             return {"error": "date_not_in_calendar"}
@@ -485,7 +537,8 @@ async def graphql_availability_price(page: Page, checkin: datetime, days: int = 
             "per_night": round(total / minlos, 2),
         }
 
-    # Try 3 windows: exact day, that month's window, and a wider window starting 31 days earlier
+    # Try 3 windows: exact window, month window, wider backshifted window
+    last = {"error": "unknown"}
     for start, span in [
         (checkin, max(31, days)),
         (checkin.replace(day=1), 62),
@@ -494,11 +547,12 @@ async def graphql_availability_price(page: Page, checkin: datetime, days: int = 
         res = await _do_query(start, span)
         if "error" not in res:
             return res
+        last = res
         if debug:
             print(f"GQL attempt start={start.date()} span={span}: {res}")
 
-    # If all fail, return the last error
-    return res
+    return last
+
 
 
 
@@ -524,6 +578,8 @@ async def get_price_for_dates(
     if not resp or not resp.ok:
         raise RuntimeError(f"HTTP {resp.status if resp else 'no response'}")
 
+    await page.wait_for_load_state("domcontentloaded")
+    await page.wait_for_load_state("networkidle")
     await accept_cookies_if_present(page)
     await page_settle(page)
 
