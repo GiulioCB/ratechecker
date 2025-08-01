@@ -21,6 +21,14 @@ if sys.platform.startswith("win"):
 # ---------- Tuning ----------
 NUM_CONCURRENCY = 2
 
+def canonicalize_booking_url(u: Optional[str]) -> Optional[str]:
+    if not u:
+        return None
+    u = u.strip()
+    u = re.sub(r"^https?://m\.booking\.com", "https://www.booking.com", u, flags=re.I)
+    u = re.sub(r"^https?://[^/]*booking\.com", "https://www.booking.com", u, flags=re.I)
+    return u.split("#")[0].split("?")[0]
+
 
 # ---------- Date helpers ----------
 def ddmmyyyy(d: datetime) -> str:
@@ -558,56 +566,44 @@ async def get_price_for_dates(
 
 
 # ---------- One scrape task ----------
-async def scrape_one(hotel: Dict, checkin: datetime, selected_currency: str, debug: bool = False) -> Dict:
-    hotel_name, city = hotel["name"], hotel.get("city")
+async def scrape_one(hotel: Dict, checkin: datetime, selected_currency: str, debug=False) -> Dict:
+    hotel_name = hotel.get("name") or hotel.get("hotel") or ""
+    provided_url = canonicalize_booking_url(hotel.get("url"))
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-blink-features=AutomationControlled",
-            ],
+            args=["--disable-blink-features=AutomationControlled"],
         )
         context = await browser.new_context(
             locale="de-DE",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            ),
+            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         )
         page = await context.new_page()
         page.set_default_timeout(30000)
 
         try:
-            url = await resolve_property_url(page, hotel_name, city, debug=debug)
+            # If user pasted a Booking property link, use it.
+            if provided_url:
+                url = provided_url
+            else:
+                # Fallback to resolver (no city anymore)
+                url = await resolve_property_url(page, hotel_name, city=None, debug=debug)
+
             if not url:
                 await browser.close()
                 return {"hotel": hotel_name, "date": iso(checkin), "status": "No rate found", "reason": "no_url"}
 
-            result = await get_price_for_dates(
-                page, url, checkin, nights=1, currency=selected_currency, debug=debug
-            )
+            result = await get_price_for_dates(page, url, checkin, nights=1, currency=selected_currency, debug=debug)
         except Exception as e:
             await browser.close()
-            return {
-                "hotel": hotel_name,
-                "date": iso(checkin),
-                "status": "No rate found",
-                "reason": f"exception {e}",
-            }
+            return {"hotel": hotel_name, "date": iso(checkin), "status": "No rate found", "reason": f"exception {e}"}
 
         await browser.close()
 
         if "error" in result:
-            return {
-                "hotel": hotel_name,
-                "date": iso(checkin),
-                "status": "No rate found",
-                "reason": result["error"],
-            }
+            return {"hotel": hotel_name, "date": iso(checkin), "status": "No rate found", "reason": result["error"]}
         else:
             return {
                 "hotel": hotel_name,
@@ -619,6 +615,7 @@ async def scrape_one(hotel: Dict, checkin: datetime, selected_currency: str, deb
                 "minstay_applied": result["minstay_applied"],
                 "currency": selected_currency,
             }
+
 
 
 # ---------- Orchestrator ----------
