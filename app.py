@@ -34,6 +34,14 @@ if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     except Exception:
         pass
+import base64, os, pathlib
+
+def _b64_image(path: str) -> str:
+    p = pathlib.Path(path)
+    if not p.exists():
+        return ""
+    with open(p, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
 # ---------------------------
 # Month/date helpers
@@ -197,42 +205,47 @@ if "show_password" not in st.session_state:
 
 if not st.session_state.authenticated:
     # Full-black background + centered hero
+    # Encode background image as data URL so it works on Render
+    BG_B64 = _b64_image("assets/landing_bg.jpg")
+
     st.markdown(
-        """
+        f"""
         <style>
-        /* Full black background */
-        html, body, [data-testid="stAppViewContainer"] {
-            background-color: #000000 !important;
-            height: 100%;
-        }
+        /* Remove Streamlit scroll & padding */
+        html, body {{ height: 100%; overflow: hidden; }}
+        [data-testid="stAppViewContainer"] .block-container {{
+            padding: 0 !important;
+            margin: 0 !important;
+        }}
 
-        /* Remove Streamlit’s default top/bottom padding so we can center perfectly */
-        [data-testid="stAppViewContainer"] .block-container {
-            padding-top: 0 !important;
-            padding-bottom: 0 !important;
-            height: 50vh;          /* take the full viewport height */
-        }
-
-        /* Center the hero exactly in the middle of the viewport */
-        .hero {
-            height: 100vh;          /* full height */
-            width: 100%;
+        /* Fixed full-viewport wrapper */
+        .landing {{
+            position: fixed;
+            inset: 0;
+            height: 100dvh;               /* dynamic viewport height for desktop+mobile */
+            width: 100vw;
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center; /* vertical + horizontal center */
+            align-items: center;           /* vertical centering */
+            justify-content: center;       /* horizontal centering */
+
+            /* Background image + dark overlay for readability */
+            background:
+            linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
+            url("data:image/jpeg;base64,{BG_B64}") center / cover no-repeat fixed;
+        }}
+
+        .hero {{
             text-align: center;
             color: #e5e5e5;
-        }
-
-        .hero h1 {
+        }}
+        .hero h1 {{
             font-size: 3rem;
             font-weight: 800;
             letter-spacing: 0.5px;
-            margin: 0 0 1.25rem 0;  /* no extra top margin */
-        }
-
-        .hero .btn {
+            margin: 0 0 1.25rem 0;
+            text-shadow: 0 2px 10px rgba(0,0,0,.6);
+        }}
+        .hero .btn {{
             display: inline-block;
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
@@ -242,12 +255,17 @@ if not st.session_state.authenticated:
             border: none;
             cursor: pointer;
             font-size: 1.05rem;
-        }
-        .hero .btn:hover { filter: brightness(1.05); }
+            box-shadow: 0 4px 16px rgba(0,0,0,.35);
+        }}
+        .hero .btn:hover {{ filter: brightness(1.05); }}
+
+        .hero .stButton, .hero .stTextInput {{ display: inline-block; }}
+        .hero .stTextInput {{ width: 320px; margin-top: 0.75rem; }}
         </style>
         """,
         unsafe_allow_html=True,
     )
+
 
 
     st.markdown('<div class="hero">', unsafe_allow_html=True)
