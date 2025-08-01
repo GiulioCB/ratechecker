@@ -1,5 +1,3 @@
-
-
 # app.py
 import asyncio
 import hashlib
@@ -81,6 +79,29 @@ def generate_dates(start: datetime, months: int):
             out.append(rng.choice(weekends).to_pydatetime())
     return out
 
+def normalize_date_text(text: str):
+    """
+    Parse dd.mm.yyyy lines, drop invalid/duplicates, return (dates_list, normalized_sorted_text).
+    """
+    dates = []
+    seen = set()
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        try:
+            d = datetime.strptime(s, "%d.%m.%Y")
+            key = d.strftime("%Y-%m-%d")
+            if key not in seen:
+                dates.append(d)
+                seen.add(key)
+        except Exception:
+            # ignore invalid lines
+            pass
+    dates_sorted = sorted(dates)
+    normalized = "\n".join([d.strftime("%d.%m.%Y") for d in dates_sorted])
+    return dates_sorted, normalized
+
 # ---------------------------
 # Import the Booking.com scraper helpers
 # ---------------------------
@@ -92,14 +113,10 @@ from scraper import scrape_hotels_for_dates, ddmmyyyy
 st.set_page_config(page_title="RateChecker", layout="wide")
 
 # ---------------------------
-# Text constants (English only)
+# Global text constants (English only)
 # ---------------------------
 TITLE = "🎯 Best Available Rate Checker"
 INTRO = "This app helps you check non-member hotel rates automatically."
-LOGIN_REQUIRED = "🔐 Login required"
-PASSWORD_LABEL = "Password"
-LOGIN_BUTTON = "Login"
-ACCESS_GRANTED = "✅ Access granted! You can now continue."
 DATE_SECTION = "🗓️ Date Range & Random Dates"
 CHOOSE_START = "Choose start date"
 HOW_MANY_MONTHS = "How many months to check?"
@@ -116,32 +133,78 @@ BOOKING_URL_HELP = (
 )
 
 # ---------------------------
-# Password protection
+# Password protection (custom black landing screen)
 # ---------------------------
+# Store a SHA-256 hash of your password here:
 correct_password_hash = "7fc07a0115c0f866be8e4c728e6504769118b47d066f1104f11a193fe4b704a3"
+
 def check_password(pwd: str) -> bool:
     return hashlib.sha256(pwd.encode()).hexdigest() == correct_password_hash
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "show_password" not in st.session_state:
+    st.session_state.show_password = False
 
 if not st.session_state.authenticated:
-    st.title(TITLE)
-    st.write(INTRO)
-    password = st.text_input(PASSWORD_LABEL, type="password")
-    if st.button(LOGIN_BUTTON):
-        if check_password(password):
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("❌ Wrong password")
+    # Full-black background + centered hero
+    st.markdown(
+        """
+        <style>
+        html, body, [data-testid="stAppViewContainer"] {
+            background-color: #000000 !important;
+        }
+        .hero {
+            min-height: 88vh;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            text-align: center;
+            color: #e5e5e5;
+        }
+        .hero h1 {
+            font-size: 3rem; font-weight: 800; letter-spacing: 0.5px;
+            margin-bottom: 1.25rem;
+        }
+        .hero .btn {
+            display: inline-block; padding: 0.75rem 1.5rem;
+            border-radius: 12px; background: #2563eb; color: #ffffff;
+            font-weight: 600; border: none; cursor: pointer; font-size: 1.05rem;
+        }
+        .hero .btn:hover { filter: brightness(1.05); }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="hero">', unsafe_allow_html=True)
+    st.markdown('<h1>Giulios BAR Checker</h1>', unsafe_allow_html=True)
+
+    # Access button centered
+    access_clicked = st.button("Access", key="access_btn")
+
+    if access_clicked:
+        st.session_state.show_password = True
+
+    if st.session_state.show_password:
+        # Password input and Go button (centered under Access)
+        pwd = st.text_input("Password", type="password", label_visibility="collapsed")
+        go = st.button("Go →", key="go_btn")
+        if go:
+            if check_password(pwd):
+                st.session_state.authenticated = True
+                st.session_state.show_password = False
+                st.rerun()
+            else:
+                st.error("❌ Wrong password")
+
+    st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 # ---------------------------
-# App header
+# App header (post-login)
 # ---------------------------
 st.title(TITLE)
-st.success(ACCESS_GRANTED)
+st.caption(INTRO)
 st.subheader(DATE_SECTION)
 
 # ---------------------------
@@ -188,21 +251,27 @@ else:
         st.info("Dates shown are from the last generation. Click **🔄 Regenerate** to update.")
 
 # ---------------------------
-# Editable random dates area
+# Editable random dates area (ALWAYS sorted)
 # ---------------------------
 st.markdown(f"### {RANDOM_DATES}")
-random_dates_str = "\n".join([d.strftime("%d.%m.%Y") for d in st.session_state.dates])
-edited_dates_str = st.text_area(
-    MANUAL_INPUT, value=random_dates_str, height=150, help=INPUT_HINT
-)
 
-edited_dates = []
-for line in edited_dates_str.splitlines():
-    try:
-        d = datetime.strptime(line.strip(), "%d.%m.%Y")
-        edited_dates.append(d)
-    except Exception:
-        pass
+# Initialize date_text state with sorted generated dates
+if "date_text" not in st.session_state:
+    init_sorted_text = "\n".join([d.strftime("%d.%m.%Y") for d in sorted(st.session_state.dates)])
+    st.session_state.date_text = init_sorted_text
+
+# Text area bound to session state
+user_text = st.text_area(MANUAL_INPUT, value=st.session_state.date_text,
+                         height=150, help=INPUT_HINT, key="date_text")
+
+# Normalize and enforce chronological order
+parsed_dates, normalized_text = normalize_date_text(user_text)
+if user_text.strip() != normalized_text.strip():
+    st.session_state.date_text = normalized_text
+    st.rerun()
+
+# Use the parsed, sorted dates from the normalized text
+edited_dates = parsed_dates
 
 # ---------------------------
 # Debug toggle (needed before hotel input so it can guard URL warnings)
@@ -210,7 +279,7 @@ for line in edited_dates_str.splitlines():
 debug_flag = st.toggle("Debug logs", st.session_state.get("debug_flag", False), key="debug_flag")
 
 # ---------------------------
-# Hotel input (Name | Booking.com hotel link)
+# Hotel input (Name | Booking.com hotel link)  -- NO PRESET ROW
 # ---------------------------
 BOOKING_URL_RE = re.compile(
     r"^https?://[^/]*booking\.com/(?:[^/]+/)?hotel/[^/?#]+\.html(?:[?#].*)?$",
@@ -228,9 +297,8 @@ def _canon_booking_url(u: str) -> str:
 
 st.subheader(HOTEL_INFO)
 
-default_hotels_df = pd.DataFrame([
-    {"hotel": "Steigenberger Icon Frankfurter Hof", "booking_url": ""},
-])
+# Empty table (users add rows themselves)
+default_hotels_df = pd.DataFrame(columns=["hotel", "booking_url"])
 
 hotels_df = st.data_editor(
     default_hotels_df,
@@ -263,7 +331,7 @@ for _, row in hotels_df.iterrows():
     hotels_input.append({"name": name, "url": url})
 
 # ---------------------------
-# Dates table preview (English only)
+# Dates table preview (English only, sorted)
 # ---------------------------
 all_dates = sorted(set(edited_dates))
 weekday_label = "Weekday"
