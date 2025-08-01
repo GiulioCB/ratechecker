@@ -2,7 +2,13 @@ services:
   - type: web
     name: ratechecker
     env: python
-    buildCommand: "pip install -r requirements.txt && playwright install"
-    startCommand: "streamlit run app.py"
-    plan: free
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python -m playwright install --with-deps chromium
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
 
