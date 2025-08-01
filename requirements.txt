@@ -5,4 +5,5 @@ openpyxl
 xlsxwriter
 streamlit-authenticator
 rapidfuzz
+greenlet==3.0.3
 
