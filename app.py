@@ -219,10 +219,9 @@ if "show_password" not in st.session_state:
 # ---------------------------
 # Landing screen (not authenticated)
 # ---------------------------
-if not st.session_state.get("authenticated", False):
-    import os, base64, pathlib
-
-    # Helper to embed a local image; falls back to GitHub raw if not present
+if not st.session_state.authenticated:
+    # --- Background image: local first, then GitHub raw fallback ---
+    import base64, pathlib
     def _b64_image_or_empty(path: str) -> str:
         p = pathlib.Path(path)
         if not p.exists():
@@ -230,58 +229,60 @@ if not st.session_state.get("authenticated", False):
         with open(p, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
 
-    # Build background URL
     local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
-    _b64 = _b64_image_or_empty(local_bg)
-    BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
-             "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
+    b64 = _b64_image_or_empty(local_bg)
+    if b64:
+        BG_URL = f"data:image/jpeg;base64,{b64}"
+    else:
+        BG_URL = "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
 
-    # ---- OPEN: full-screen background + centered content wrapper ----
     st.markdown(
         f"""
         <style>
+        /* Full-viewport; avoid page scroll on landing */
         html, body {{
             height: 100%;
-            overflow: hidden; /* no scroll */
+            overflow: hidden;
         }}
+
+        /* Remove Streamlit default padding so the background fills edge-to-edge */
         [data-testid="stAppViewContainer"] .block-container {{
             padding: 0 !important;
             margin: 0 !important;
         }}
 
-        /* Full-screen layer with background image */
+        /* Fixed full-screen layer with background */
         #landing-root {{
             position: fixed;
             inset: 0;
             width: 100vw;
-            height: 100svh;         /* dynamic viewport on mobile */
-            min-height: 100dvh;
-            display: grid;
-            place-items: center;     /* vertical + horizontal center */
+            height: 100svh;        /* modern dynamic viewport (iOS/Android/desktop) */
+            min-height: 100dvh;    /* fallback */
+            display: grid;         /* <-- grid centering */
+            place-items: center;   /* <-- vertical + horizontal center */
             background:
               linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
               url("{BG_URL}") center / cover no-repeat fixed;
             z-index: 9999;
         }}
 
-        /* Centered box; also centers its children */
+        /* The centered box */
         #centerbox {{
             width: clamp(260px, 90vw, 720px);
-            display: grid;
-            justify-items: center;
-            align-items: center;
-            gap: 16px;
             text-align: center;
             color: #e5e5e5;
         }}
+
         #centerbox h1 {{
-            margin: 0;
             font-size: clamp(1.8rem, 4vw, 3rem);
             font-weight: 800;
             letter-spacing: .5px;
+            margin: 0 0 1.25rem 0;
             text-shadow: 0 2px 10px rgba(0,0,0,.6);
         }}
-        #centerbox div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+
+        /* Center Streamlit widgets inside the box */
+        #centerbox div.stButton {{ display: flex; justify-content: center; }}
         #centerbox div.stButton > button {{
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
@@ -291,7 +292,8 @@ if not st.session_state.get("authenticated", False):
             border: none;
             box-shadow: 0 4px 16px rgba(0,0,0,.35);
         }}
-        #centerbox div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+
+        #centerbox div.stTextInput {{ display: flex; justify-content: center; }}
         #centerbox div.stTextInput > div {{ width: 320px; }}
         </style>
 
@@ -300,6 +302,29 @@ if not st.session_state.get("authenticated", False):
         """,
         unsafe_allow_html=True,
     )
+
+    # --- Render widgets inside the centered box ---
+    st.title("Giulios BAR Checker")
+
+    access_clicked = st.button("Access", key="access_btn")
+    if access_clicked:
+        st.session_state.show_password = True
+
+    if st.session_state.get("show_password"):
+        pwd = st.text_input("Password", type="password", label_visibility="collapsed")
+        go = st.button("Go →", key="go_btn")
+        if go:
+            if check_password(pwd):
+                st.session_state.authenticated = True
+                st.session_state.show_password = False
+                st.rerun()
+            else:
+                st.error("❌ Wrong password")
+
+    # Close wrappers
+    st.markdown("</div></div>", unsafe_allow_html=True)
+    st.stop()
+
 
     # ---- WIDGETS INSIDE THE CENTERED BOX (these must be between the two markdown calls) ----
     st.title("Giulios BAR Checker")
