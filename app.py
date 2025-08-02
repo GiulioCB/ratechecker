@@ -51,7 +51,11 @@ def _b64_image(path: str) -> str:
         return ""
     with open(p, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
-
+# Build BG_URL (local asset first, raw GitHub fallback)
+local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
+_b64 = _b64_image_or_empty(local_bg)
+BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
+         "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
 # ---------------------------
 # Month/date helpers
 # ---------------------------
@@ -227,41 +231,75 @@ if not st.session_state.authenticated:
     st.markdown(
         f"""
         <style>
+        /* Use modern viewport units to avoid mobile browser bars issues */
         html, body {{
             height: 100%;
-            overflow: hidden;
+            overflow: hidden;             /* no scroll on landing */
         }}
 
-        /* Center horizontally, but start a bit lower from the top */
+        /* Remove Streamlit padding so background fills edge-to-edge */
         [data-testid="stAppViewContainer"] .block-container {{
-            max-width: 100vw !important;
             padding: 0 !important;
             margin: 0 !important;
+        }}
 
-            display: flex;
-            flex-direction: column;
-            align-items: center;       /* horizontal center */
-            justify-content: flex-start;
-
-            height: 100dvh;
-            padding-top: {HERO_OFFSET};   /* <-- pushes the title & buttons down a bit */
-
+        /* Fixed full-screen layer with background image + overlay */
+        #landing-root {{
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100svh;               /* dynamic viewport */
+            min-height: 100dvh;
+            display: grid;                 /* <-- grid centering */
+            place-items: center;           /* <-- vertical + horizontal center */
             background:
-                linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
-                url("{BG_URL}") center / cover no-repeat fixed;
+            linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
+            url("{BG_URL}") center / cover no-repeat fixed;
+            z-index: 9999;
         }}
 
-        h1 {{ text-align: center; margin: 0 0 1.25rem 0; color: #e5e5e5; text-shadow: 0 2px 10px rgba(0,0,0,.6); }}
-
-        div.stButton {{ display: flex; justify-content: center; width: 100%; }}
-        div.stButton > button {{
-            padding: 0.75rem 1.5rem; border-radius: 12px; font-weight: 600;
-            background: #2563eb; color: #fff; border: none; box-shadow: 0 4px 16px rgba(0,0,0,.35);
+        /* Centered content box */
+        #centerbox {{
+            width: clamp(260px, 90vw, 720px);
+            display: grid;                 /* center children too */
+            justify-items: center;
+            align-items: center;
+            gap: 16px;
+            text-align: center;
+            color: #e5e5e5;
         }}
 
-        div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
-        div.stTextInput > div {{ width: 320px; }}
+        /* Title text truly centered with no stray margins */
+        #centerbox h1 {{
+            display: block;
+            width: 100%;
+            margin: 0;                    /* remove default h1 margins */
+            font-size: clamp(1.8rem, 4vw, 3rem);
+            font-weight: 800;
+            letter-spacing: .5px;
+            text-align: center;
+            text-shadow: 0 2px 10px rgba(0,0,0,.6);
+        }}
+
+        /* Center the Streamlit widgets inside the box */
+        #centerbox div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        #centerbox div.stButton > button {{
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            background: #2563eb;
+            color: #fff;
+            font-weight: 600;
+            border: none;
+            box-shadow: 0 4px 16px rgba(0,0,0,.35);
+        }}
+
+        #centerbox div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+        #centerbox div.stTextInput > div {{ width: 320px; }}
         </style>
+
+        <!-- Full-screen background + centered content wrapper -->
+        <div id="landing-root">
+        <div id="centerbox">
         """,
         unsafe_allow_html=True,
     )
