@@ -222,7 +222,7 @@ if not st.session_state.authenticated:
     else:
         # Fallback to the raw file from GitHub (NOT the HTML page)
         BG_URL = "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
-    HERO_OFFSET = "18dvh"
+    HERO_OFFSET = "45dvh"
 
     st.markdown(
         f"""
