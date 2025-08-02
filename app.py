@@ -201,7 +201,7 @@ if not st.session_state.authenticated:
              "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
 
     # ONE self-contained CSS block — no open/close wrappers
-    HERO_OFFSET = "28dvh"  # <-- adjust this number to move the block up/down
+    HERO_OFFSET = "128dvh"  # <-- adjust this number to move the block up/down
 
     st.markdown(
         f"""
