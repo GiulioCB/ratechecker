@@ -245,7 +245,7 @@ if not st.session_state.authenticated:
             color: #e5e5e5;
         }}
 
-        .landing-box h1 {{
+        .hero-card h1 {{
             margin: 0;
             font-size: clamp(1.8rem, 4vw, 3rem);
             font-weight: 800;
@@ -253,9 +253,9 @@ if not st.session_state.authenticated:
             text-shadow: 0 2px 10px rgba(0,0,0,.6);
         }}
 
-        /* Center Streamlit widgets inside the box */
-        .landing-box div.stButton {{ display: flex; flex-direction: column; justify-content: center; width: 100%; align-items: center; }}
-        .landing-box div.stButton > button {{
+         /* Center Streamlit widgets inside the card and keep them compact */
+        .hero-card div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        .hero-card div.stButton > button {{
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
             background: #2563eb;
@@ -264,9 +264,11 @@ if not st.session_state.authenticated:
             border: none;
             box-shadow: 0 4px 16px rgba(0,0,0,.35);
         }}
-        .landing-box div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
-        .landing-box div.stTextInput > div {{ width: 320px; }}
+        .hero-card div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+        .hero-card div.stTextInput > div {{ width: 320px; }}  /* compact input width */
         </style>
+        <div class="hero">
+          <div class="hero-card">
         """,
         unsafe_allow_html=True,
     )
