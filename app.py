@@ -200,34 +200,35 @@ if not st.session_state.authenticated:
     BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
              "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
 
-    # Open wrapper: full-screen background + centered content
+    # ONE self-contained CSS block — no open/close wrappers
     st.markdown(
         f"""
         <style>
+        /* No page scroll on landing; make the app viewport full height */
         html, body {{
             height: 100%;
-            overflow: hidden; /* no scroll */
+            overflow: hidden;
         }}
-        [data-testid="stAppViewContainer"] .block-container {{
-            padding: 0 !important;
-            margin: 0 !important;
-        }}
-        /* Full-screen layer with background image */
-        #landing-root {{
-            position: fixed;
-            inset: 0;
-            width: 100vw;
-            height: 100svh;         /* dynamic viewport on mobile */
-            min-height: 100dvh;
-            display: grid;
-            place-items: center;     /* vertical + horizontal center */
+
+        /* Paint the background on the real Streamlit app container */
+        [data-testid="stAppViewContainer"] {{
             background:
               linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
               url("{BG_URL}") center / cover no-repeat fixed;
-            z-index: 9999;
         }}
-        /* Centered box; also centers its children */
-        #centerbox {{
+
+        /* Center the *Streamlit block* itself */
+        [data-testid="stAppViewContainer"] .block-container {{
+            height: 100svh;                 /* dynamic viewport for mobile/desktop */
+            min-height: 100dvh;
+            display: grid;                   /* robust vertical + horizontal centering */
+            place-items: center;
+            padding: 0 !important;           /* edge-to-edge */
+            margin: 0 !important;
+        }}
+
+        /* A centered box that also centers its children (widgets) */
+        .landing-box {{
             width: clamp(260px, 90vw, 720px);
             display: grid;
             justify-items: center;
@@ -236,15 +237,18 @@ if not st.session_state.authenticated:
             text-align: center;
             color: #e5e5e5;
         }}
-        #centerbox h1 {{
+
+        .landing-box h1 {{
             margin: 0;
             font-size: clamp(1.8rem, 4vw, 3rem);
             font-weight: 800;
             letter-spacing: .5px;
             text-shadow: 0 2px 10px rgba(0,0,0,.6);
         }}
-        #centerbox div.stButton {{ display: flex; justify-content: center; width: 100%; }}
-        #centerbox div.stButton > button {{
+
+        /* Center Streamlit widgets inside the box */
+        .landing-box div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        .landing-box div.stButton > button {{
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
             background: #2563eb;
@@ -253,18 +257,16 @@ if not st.session_state.authenticated:
             border: none;
             box-shadow: 0 4px 16px rgba(0,0,0,.35);
         }}
-        #centerbox div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
-        #centerbox div.stTextInput > div {{ width: 320px; }}
+        .landing-box div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+        .landing-box div.stTextInput > div {{ width: 320px; }}
         </style>
-
-        <div id="landing-root">
-          <div id="centerbox">
         """,
         unsafe_allow_html=True,
     )
 
-    # Widgets INSIDE the centered box
-    st.title("Giulios BAR Checker")
+    # The actual content; render normally (no manual <div> wrappers)
+    st.markdown('<div class="landing-box">', unsafe_allow_html=True)
+    st.markdown('<h1>Giulios BAR Checker</h1>', unsafe_allow_html=True)
 
     if st.button("Access", key="access_btn"):
         st.session_state.show_password = True
@@ -279,8 +281,7 @@ if not st.session_state.authenticated:
             else:
                 st.error("❌ Wrong password")
 
-    # Close wrappers and stop rendering
-    st.markdown("</div></div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)  # close .landing-box only (safe)
     st.stop()
 
 # ---------------------------
