@@ -193,6 +193,9 @@ if "show_password" not in st.session_state:
 # ---------------------------
 # Landing screen (not authenticated)
 # ---------------------------
+# ---------------------------
+# Landing screen (not authenticated)
+# ---------------------------
 if not st.session_state.authenticated:
     # Background image: local first, then GitHub raw fallback
     local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
@@ -200,46 +203,44 @@ if not st.session_state.authenticated:
     BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
              "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
 
-    # ONE self-contained CSS block — no open/close wrappers
-    HERO_OFFSET = "128dvh"  # <-- adjust this number to move the block up/down
-
     st.markdown(
         f"""
         <style>
         html, body {{
             height: 100%;
-            overflow: hidden;              /* no scroll on landing */
+            overflow: hidden;  /* no scroll on landing */
         }}
 
-        /* Background behind everything */
+        /* Put the image BEHIND everything */
         [data-testid="stAppViewContainer"] {{
             background:
               linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
               url("{BG_URL}") center / cover no-repeat fixed;
         }}
 
-        /* Make Streamlit's content area a full-viewport grid and center its content */
+        /* Remove Streamlit padding so the background fills edge-to-edge */
         [data-testid="stAppViewContainer"] .block-container {{
-            height: 100svh;                /* full dynamic viewport */
-            min-height: 100dvh;
-            display: grid;                  /* grid centering */
-            place-items: center;            /* vertical + horizontal center */
             padding: 0 !important;
             margin: 0 !important;
         }}
 
-        /* Compact card that holds the title + buttons */
-        .center-card {{
-            width: min(92vw, 560px);       /* keep it compact */
+        /* === The compact card, locked to the true center of the viewport === */
+        .landing-fixed-center {{
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);   /* exact middle */
+            width: min(92vw, 560px);            /* compact width */
             display: grid;
-            justify-items: center;          /* center widgets inside */
+            justify-items: center;
             align-items: center;
             gap: 16px;
             text-align: center;
             color: #e5e5e5;
+            /* no background box so the photo shows through; add one if you want */
         }}
 
-        .center-card h1 {{
+        .landing-fixed-center h1 {{
             margin: 0;
             font-size: clamp(1.8rem, 4vw, 3rem);
             font-weight: 800;
@@ -247,8 +248,8 @@ if not st.session_state.authenticated:
             text-shadow: 0 2px 10px rgba(0,0,0,.6);
         }}
 
-        .center-card div.stButton {{ display: flex; justify-content: center; width: 100%; }}
-        .center-card div.stButton > button {{
+        .landing-fixed-center div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        .landing-fixed-center div.stButton > button {{
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
             background: #2563eb;
@@ -258,15 +259,15 @@ if not st.session_state.authenticated:
             box-shadow: 0 4px 16px rgba(0,0,0,.35);
         }}
 
-        .center-card div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
-        .center-card div.stTextInput > div {{ width: 320px; }}   /* input width */
+        .landing-fixed-center div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+        .landing-fixed-center div.stTextInput > div {{ width: 320px; }}  /* input width */
         </style>
 
-        <!-- Open the centered wrapper -->
-        <div class="center-card">
+        <div class="landing-fixed-center">
         """,
         unsafe_allow_html=True,
     )
+
 
     # The actual content; render normally (no manual <div> wrappers)
     st.markdown('<div class="landing-box">', unsafe_allow_html=True)
