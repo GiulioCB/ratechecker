@@ -216,72 +216,71 @@ if "authenticated" not in st.session_state:
 if "show_password" not in st.session_state:
     st.session_state.show_password = False
 
-if not st.session_state.authenticated:
-    # Try local asset first, then fallback to GitHub raw URL
-    # Use an absolute path so it works on Render
-    local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
-    b64 = _b64_image_or_empty(local_bg)
-    if b64:
-        BG_URL = f"data:image/jpeg;base64,{b64}"
-    else:
-        # Fallback to the raw file from GitHub (NOT the HTML page)
-        BG_URL = "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
-    HERO_OFFSET = "45dvh"
+# ---------------------------
+# Landing screen (not authenticated)
+# ---------------------------
+if not st.session_state.get("authenticated", False):
+    import os, base64, pathlib
 
+    # Helper to embed a local image; falls back to GitHub raw if not present
+    def _b64_image_or_empty(path: str) -> str:
+        p = pathlib.Path(path)
+        if not p.exists():
+            return ""
+        with open(p, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+
+    # Build background URL
+    local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
+    _b64 = _b64_image_or_empty(local_bg)
+    BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
+             "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
+
+    # ---- OPEN: full-screen background + centered content wrapper ----
     st.markdown(
         f"""
         <style>
-        /* Use modern viewport units to avoid mobile browser bars issues */
         html, body {{
             height: 100%;
-            overflow: hidden;             /* no scroll on landing */
+            overflow: hidden; /* no scroll */
         }}
-
-        /* Remove Streamlit padding so background fills edge-to-edge */
         [data-testid="stAppViewContainer"] .block-container {{
             padding: 0 !important;
             margin: 0 !important;
         }}
 
-        /* Fixed full-screen layer with background image + overlay */
+        /* Full-screen layer with background image */
         #landing-root {{
             position: fixed;
             inset: 0;
             width: 100vw;
-            height: 100svh;               /* dynamic viewport */
+            height: 100svh;         /* dynamic viewport on mobile */
             min-height: 100dvh;
-            display: grid;                 /* <-- grid centering */
-            place-items: center;           /* <-- vertical + horizontal center */
+            display: grid;
+            place-items: center;     /* vertical + horizontal center */
             background:
-            linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
-            url("{BG_URL}") center / cover no-repeat fixed;
+              linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
+              url("{BG_URL}") center / cover no-repeat fixed;
             z-index: 9999;
         }}
 
-        /* Centered content box */
+        /* Centered box; also centers its children */
         #centerbox {{
             width: clamp(260px, 90vw, 720px);
-            display: grid;                 /* center children too */
+            display: grid;
             justify-items: center;
             align-items: center;
             gap: 16px;
             text-align: center;
             color: #e5e5e5;
         }}
-
-        /* Title text truly centered with no stray margins */
         #centerbox h1 {{
-            display: block;
-            width: 100%;
-            margin: 0;                    /* remove default h1 margins */
+            margin: 0;
             font-size: clamp(1.8rem, 4vw, 3rem);
             font-weight: 800;
             letter-spacing: .5px;
-            text-align: center;
             text-shadow: 0 2px 10px rgba(0,0,0,.6);
         }}
-
-        /* Center the Streamlit widgets inside the box */
         #centerbox div.stButton {{ display: flex; justify-content: center; width: 100%; }}
         #centerbox div.stButton > button {{
             padding: 0.75rem 1.5rem;
@@ -292,29 +291,29 @@ if not st.session_state.authenticated:
             border: none;
             box-shadow: 0 4px 16px rgba(0,0,0,.35);
         }}
-
         #centerbox div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
         #centerbox div.stTextInput > div {{ width: 320px; }}
         </style>
 
-        <!-- Full-screen background + centered content wrapper -->
         <div id="landing-root">
-        <div id="centerbox">
+          <div id="centerbox">
         """,
         unsafe_allow_html=True,
     )
 
-    # Standard Streamlit widgets now appear centered by the CSS above
+    # ---- WIDGETS INSIDE THE CENTERED BOX (these must be between the two markdown calls) ----
     st.title("Giulios BAR Checker")
 
-    access_clicked = st.button("Access", key="access_btn")
-    if access_clicked:
+    # Access button toggles the password field
+    if "show_password" not in st.session_state:
+        st.session_state.show_password = False
+
+    if st.button("Access", key="access_btn"):
         st.session_state.show_password = True
 
-    if st.session_state.get("show_password"):
+    if st.session_state.show_password:
         pwd = st.text_input("Password", type="password", label_visibility="collapsed")
-        go = st.button("Go →", key="go_btn")
-        if go:
+        if st.button("Go →", key="go_btn"):
             if check_password(pwd):
                 st.session_state.authenticated = True
                 st.session_state.show_password = False
@@ -322,7 +321,12 @@ if not st.session_state.authenticated:
             else:
                 st.error("❌ Wrong password")
 
+    # ---- CLOSE the wrappers so the HTML is valid ----
+    st.markdown("</div></div>", unsafe_allow_html=True)
+
+    # Prevent the rest of the app from rendering
     st.stop()
+
 
 
 # ---------------------------
