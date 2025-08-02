@@ -7,8 +7,11 @@ import re
 import pandas as pd
 import streamlit as st
 import sys
-import os, subprocess
+import os
+import subprocess
 from calendar import monthrange
+import base64
+import pathlib
 
 # ---------------------------
 # Ensure Playwright Chromium is available (Render)
@@ -34,9 +37,10 @@ if sys.platform.startswith("win"):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     except Exception:
         pass
-import base64, os, pathlib
-import base64, pathlib
 
+# ---------------------------
+# Helpers
+# ---------------------------
 def _b64_image_or_empty(path: str) -> str:
     """Return base64 string for a local image, or '' if it doesn't exist."""
     p = pathlib.Path(path)
@@ -45,17 +49,6 @@ def _b64_image_or_empty(path: str) -> str:
     with open(p, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
-def _b64_image(path: str) -> str:
-    p = pathlib.Path(path)
-    if not p.exists():
-        return ""
-    with open(p, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
-# Build BG_URL (local asset first, raw GitHub fallback)
-local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
-_b64 = _b64_image_or_empty(local_bg)
-BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
-         "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
 # ---------------------------
 # Month/date helpers
 # ---------------------------
@@ -63,7 +56,6 @@ def first_of_month(d: datetime) -> datetime:
     return d.replace(day=1)
 
 def add_months(d: datetime, n: int) -> datetime:
-    # exact month increment (no 32‑day heuristics)
     y = d.year + (d.month - 1 + n) // 12
     m = (d.month - 1 + n) % 12 + 1
     return datetime(y, m, 1)
@@ -73,9 +65,7 @@ def month_end(d: datetime) -> datetime:
     return d.replace(day=last)
 
 def normalize_date_text(text: str):
-    """
-    Parse dd.mm.yyyy lines, drop invalid/duplicates, return (dates_list, normalized_sorted_text).
-    """
+    """Parse dd.mm.yyyy lines, drop invalid/duplicates, return (dates_list, normalized_sorted_text)."""
     dates = []
     seen = set()
     for line in (text or "").splitlines():
@@ -89,7 +79,6 @@ def normalize_date_text(text: str):
                 dates.append(d)
                 seen.add(key)
         except Exception:
-            # ignore invalid lines
             pass
     dates_sorted = sorted(dates)
     normalized = "\n".join([d.strftime("%d.%m.%Y") for d in dates_sorted])
@@ -102,7 +91,6 @@ def pick_two_dates_for_month(month_start: datetime, after_dt: datetime | None = 
       - one weekend (Fri/Sat = 4,5)
     If one bucket is empty, fall back to any remaining days to still return 2 unique dates.
     `after_dt`: if provided, only consider days strictly > after_dt.
-    Returns list[datetime] (len 1 or 2 if limited).
     """
     ms = month_start
     me = month_end(month_start)
@@ -113,7 +101,6 @@ def pick_two_dates_for_month(month_start: datetime, after_dt: datetime | None = 
     weekdays = [d for d in all_days if d.weekday() in [6, 0, 1, 2, 3]]
     weekends = [d for d in all_days if d.weekday() in [4, 5]]
 
-    # deterministic seed per YYYYMM for stable randomness
     seed = int(ms.strftime("%Y%m"))
     rng = random.Random(seed)
 
@@ -122,19 +109,15 @@ def pick_two_dates_for_month(month_start: datetime, after_dt: datetime | None = 
         chosen.append(rng.choice(weekdays).to_pydatetime())
     if weekends:
         w = rng.choice(weekends).to_pydatetime()
-        # ensure two unique dates
         if w not in chosen:
             chosen.append(w)
 
-    # fallback to fill up to 2
     if len(chosen) < 2:
         remaining = [d.to_pydatetime() for d in all_days if d.to_pydatetime() not in chosen]
         if remaining:
             rng.shuffle(remaining)
             while len(chosen) < 2 and remaining:
                 chosen.append(remaining.pop())
-
-    # return sorted for consistency
     return sorted(chosen)
 
 def generate_dates_rule(start: datetime, months: int):
@@ -145,33 +128,24 @@ def generate_dates_rule(start: datetime, months: int):
       - Otherwise, include current month but pick only dates strictly after the chosen start.
       - Always return exactly 2 dates per month (fallback if a bucket is empty).
     """
-    # Decide whether to include the start month
     end_curr = month_end(start)
-    days_after = (end_curr - start).days  # strictly after start
+    days_after = (end_curr - start).days
     include_current = days_after >= 7
 
     out = []
-
-    # First month
     if include_current:
         ms = first_of_month(start)
         out.extend(pick_two_dates_for_month(ms, after_dt=start))
-
-        # Next months (full months)
         base_month = add_months(ms, 1)
         for i in range(months - 1):
             msi = add_months(base_month, i)
             out.extend(pick_two_dates_for_month(msi, after_dt=None))
     else:
-        # Start from next full month
         base_month = add_months(first_of_month(start), 1)
         for i in range(months):
             msi = add_months(base_month, i)
             out.extend(pick_two_dates_for_month(msi, after_dt=None))
-
-    # Ensure sorted, unique
-    out = sorted(set(out))
-    return out
+    return sorted(set(out))
 
 # ---------------------------
 # Import the Booking.com scraper helpers
@@ -204,7 +178,7 @@ BOOKING_URL_HELP = (
 )
 
 # ---------------------------
-# Password protection (custom black landing screen)
+# Password protection (landing)
 # ---------------------------
 correct_password_hash = "7fc07a0115c0f866be8e4c728e6504769118b47d066f1104f11a193fe4b704a3"
 
@@ -220,69 +194,56 @@ if "show_password" not in st.session_state:
 # Landing screen (not authenticated)
 # ---------------------------
 if not st.session_state.authenticated:
-    # --- Background image: local first, then GitHub raw fallback ---
-    import base64, pathlib
-    def _b64_image_or_empty(path: str) -> str:
-        p = pathlib.Path(path)
-        if not p.exists():
-            return ""
-        with open(p, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8")
-
+    # Background image: local first, then GitHub raw fallback
     local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
-    b64 = _b64_image_or_empty(local_bg)
-    if b64:
-        BG_URL = f"data:image/jpeg;base64,{b64}"
-    else:
-        BG_URL = "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
+    _b64 = _b64_image_or_empty(local_bg)
+    BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
+             "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
 
+    # Open wrapper: full-screen background + centered content
     st.markdown(
         f"""
         <style>
-        /* Full-viewport; avoid page scroll on landing */
         html, body {{
             height: 100%;
-            overflow: hidden;
+            overflow: hidden; /* no scroll */
         }}
-
-        /* Remove Streamlit default padding so the background fills edge-to-edge */
         [data-testid="stAppViewContainer"] .block-container {{
             padding: 0 !important;
             margin: 0 !important;
         }}
-
-        /* Fixed full-screen layer with background */
+        /* Full-screen layer with background image */
         #landing-root {{
             position: fixed;
             inset: 0;
             width: 100vw;
-            height: 100svh;        /* modern dynamic viewport (iOS/Android/desktop) */
-            min-height: 100dvh;    /* fallback */
-            display: grid;         /* <-- grid centering */
-            place-items: center;   /* <-- vertical + horizontal center */
+            height: 100svh;         /* dynamic viewport on mobile */
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;     /* vertical + horizontal center */
             background:
               linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
               url("{BG_URL}") center / cover no-repeat fixed;
             z-index: 9999;
         }}
-
-        /* The centered box */
+        /* Centered box; also centers its children */
         #centerbox {{
             width: clamp(260px, 90vw, 720px);
+            display: grid;
+            justify-items: center;
+            align-items: center;
+            gap: 16px;
             text-align: center;
             color: #e5e5e5;
         }}
-
         #centerbox h1 {{
+            margin: 0;
             font-size: clamp(1.8rem, 4vw, 3rem);
             font-weight: 800;
             letter-spacing: .5px;
-            margin: 0 0 1.25rem 0;
             text-shadow: 0 2px 10px rgba(0,0,0,.6);
         }}
-
-        /* Center Streamlit widgets inside the box */
-        #centerbox div.stButton {{ display: flex; justify-content: center; }}
+        #centerbox div.stButton {{ display: flex; justify-content: center; width: 100%; }}
         #centerbox div.stButton > button {{
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
@@ -292,8 +253,7 @@ if not st.session_state.authenticated:
             border: none;
             box-shadow: 0 4px 16px rgba(0,0,0,.35);
         }}
-
-        #centerbox div.stTextInput {{ display: flex; justify-content: center; }}
+        #centerbox div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
         #centerbox div.stTextInput > div {{ width: 320px; }}
         </style>
 
@@ -303,35 +263,8 @@ if not st.session_state.authenticated:
         unsafe_allow_html=True,
     )
 
-    # --- Render widgets inside the centered box ---
+    # Widgets INSIDE the centered box
     st.title("Giulios BAR Checker")
-
-    access_clicked = st.button("Access", key="access_btn")
-    if access_clicked:
-        st.session_state.show_password = True
-
-    if st.session_state.get("show_password"):
-        pwd = st.text_input("Password", type="password", label_visibility="collapsed")
-        go = st.button("Go →", key="go_btn")
-        if go:
-            if check_password(pwd):
-                st.session_state.authenticated = True
-                st.session_state.show_password = False
-                st.rerun()
-            else:
-                st.error("❌ Wrong password")
-
-    # Close wrappers
-    st.markdown("</div></div>", unsafe_allow_html=True)
-    st.stop()
-
-
-    # ---- WIDGETS INSIDE THE CENTERED BOX (these must be between the two markdown calls) ----
-    st.title("Giulios BAR Checker")
-
-    # Access button toggles the password field
-    if "show_password" not in st.session_state:
-        st.session_state.show_password = False
 
     if st.button("Access", key="access_btn"):
         st.session_state.show_password = True
@@ -346,13 +279,9 @@ if not st.session_state.authenticated:
             else:
                 st.error("❌ Wrong password")
 
-    # ---- CLOSE the wrappers so the HTML is valid ----
+    # Close wrappers and stop rendering
     st.markdown("</div></div>", unsafe_allow_html=True)
-
-    # Prevent the rest of the app from rendering
     st.stop()
-
-
 
 # ---------------------------
 # App header (post-login)
@@ -362,7 +291,7 @@ st.caption(INTRO)
 st.subheader(DATE_SECTION)
 
 # ---------------------------
-# Date selection (dd.mm.yyyy)
+# Date selection
 # ---------------------------
 default_date = datetime.today()
 if "custom_start_date" not in st.session_state:
@@ -376,16 +305,14 @@ try:
 except ValueError:
     pass
 
-# --- Months slider + Regenerate button on one row ---
+# Months slider + Regenerate button
 col_slider, col_btn = st.columns([4, 1])
 with col_slider:
-    months_to_check = st.slider(HOW_MANY_MONTHS, 1, 12,
-                                st.session_state.get("months_to_check", 6))
+    months_to_check = st.slider(HOW_MANY_MONTHS, 1, 12, st.session_state.get("months_to_check", 6))
 with col_btn:
     regen_clicked = st.button("🔄 Regenerate", use_container_width=True,
                               help="Generate new random weekday+weekend dates for each month")
 
-# Remember current control values (for later checks / messages)
 st.session_state.months_to_check = months_to_check
 st.session_state.current_start_date = st.session_state.custom_start_date
 
@@ -396,45 +323,37 @@ def _regen_and_apply():
     st.session_state.dates = dates
     st.session_state.last_generated_start = st.session_state.current_start_date
     st.session_state.last_generated_months = months_to_check
-    # keep textarea & parsed list aligned (before the widget is created)
     st.session_state.date_text = "\n".join(d.strftime("%d.%m.%Y") for d in dates)
     st.session_state.parsed_dates = dates
 
-
-# --- Generate dates only when button is pressed, or on first load ---
+# Generate on first load or when button is pressed
 if "dates" not in st.session_state:
     _regen_and_apply()
 elif regen_clicked:
     _regen_and_apply()
 else:
-    # Inputs changed, but user hasn't clicked regenerate: keep old dates
     if (st.session_state.get("last_generated_start") != st.session_state.current_start_date or
         st.session_state.get("last_generated_months") != months_to_check):
         st.info("Dates shown are from the last generation. Click **🔄 Regenerate** to update.")
 
 # ---------------------------
-# Editable random dates area (ALWAYS sorted) — with callback
+# Editable random dates area (callback keeps them sorted)
 # ---------------------------
 st.markdown(f"### {RANDOM_DATES}")
 
-# Initialize textarea state on first load
 if "date_text" not in st.session_state:
     st.session_state.date_text = "\n".join(d.strftime("%d.%m.%Y") for d in sorted(st.session_state.dates))
 
-# Keep a parsed list in state too (so we don't parse on every render)
 if "parsed_dates" not in st.session_state:
-    # initial parse from date_text
     _init_parsed, _init_norm = normalize_date_text(st.session_state.date_text)
     st.session_state.parsed_dates = _init_parsed
-    st.session_state.date_text = _init_norm  # ensure normalized from the start
+    st.session_state.date_text = _init_norm
 
 def _normalize_dates_cb():
-    """Normalize textarea content to chronological order & update parsed list."""
     parsed, normalized = normalize_date_text(st.session_state.date_text)
     st.session_state.parsed_dates = parsed
     st.session_state.date_text = normalized
 
-# Show the textarea; normalization happens in the callback
 st.text_area(
     MANUAL_INPUT,
     key="date_text",
@@ -443,17 +362,15 @@ st.text_area(
     on_change=_normalize_dates_cb,
 )
 
-# Use the parsed, sorted dates from state
 edited_dates = st.session_state.parsed_dates
 
-
 # ---------------------------
-# Debug toggle (needed before hotel input so it can guard URL warnings)
+# Debug toggle (for URL warnings)
 # ---------------------------
 debug_flag = st.toggle("Debug logs", st.session_state.get("debug_flag", False), key="debug_flag")
 
 # ---------------------------
-# Hotel input (Name | Booking.com hotel link)  -- NO PRESET ROW
+# Hotel input (no preset rows)
 # ---------------------------
 BOOKING_URL_RE = re.compile(
     r"^https?://[^/]*booking\.com/(?:[^/]+/)?hotel/[^/?#]+\.html(?:[?#].*)?$",
@@ -461,7 +378,6 @@ BOOKING_URL_RE = re.compile(
 )
 
 def _canon_booking_url(u: str) -> str:
-    """Normalize a Booking property URL (drop querystring and fragments)."""
     if not u:
         return ""
     u = u.strip()
@@ -471,7 +387,6 @@ def _canon_booking_url(u: str) -> str:
 
 st.subheader(HOTEL_INFO)
 
-# Empty table (users add rows themselves)
 default_hotels_df = pd.DataFrame(columns=["hotel", "booking_url"])
 
 hotels_df = st.data_editor(
@@ -492,7 +407,6 @@ hotels_df = st.data_editor(
     key="hotels_editor",
 )
 
-# Build the list for the scraper (URL warning only in Debug mode)
 hotels_input = []
 for _, row in hotels_df.iterrows():
     name = (row.get("hotel") or "").strip()
@@ -505,7 +419,7 @@ for _, row in hotels_df.iterrows():
     hotels_input.append({"name": name, "url": url})
 
 # ---------------------------
-# Dates table preview (English only, sorted)
+# Dates table preview
 # ---------------------------
 all_dates = sorted(set(edited_dates))
 weekday_label = "Weekday"
@@ -515,7 +429,7 @@ df_dates = pd.DataFrame(
 st.dataframe(df_dates, use_container_width=True)
 
 # ---------------------------
-# Currency selector (blank -> EUR)
+# Currency selector
 # ---------------------------
 currency = st.selectbox(
     CURRENCY_LABEL,
@@ -528,30 +442,26 @@ selected_currency = currency or "EUR"
 # Start Web Scraping
 # ---------------------------
 if st.button(GENERATE_BUTTON, type="primary"):
-    # Validate there is at least one hotel name
     hotels_names = [h["name"] for h in hotels_input if h["name"]]
     if not hotels_names:
         st.warning("Please enter at least one hotel name.")
         st.stop()
 
-    # Validate dates
     dates = list(all_dates)
     if not dates:
         st.error("No dates found. Generate or edit dates first, then click Start Web Scraping.")
         st.stop()
 
-    # Run scraper
     with st.spinner("Scraping Booking.com..."):
         results = asyncio.run(
             scrape_hotels_for_dates(
                 hotels=hotels_input,
-                dates=dates,                       # use the actual list of datetimes
+                dates=dates,
                 selected_currency=selected_currency,
                 debug=debug_flag,
             )
         )
 
-        # Debug table
         debug_rows = []
         for (name, ymd), r in results.items():
             status = r.get("status") if isinstance(r, dict) else "No rate found"
@@ -560,7 +470,6 @@ if st.button(GENERATE_BUTTON, type="primary"):
         st.caption("Debug (temporary)")
         st.dataframe(pd.DataFrame(debug_rows), use_container_width=True)
 
-    # Build output table: rows = dates, columns = hotels (by name)
     out_rows = []
     for d in dates:
         row = {"Date": ddmmyyyy(d)}
@@ -583,7 +492,6 @@ if st.button(GENERATE_BUTTON, type="primary"):
         mime="text/csv",
     )
 
-    # Beer messages (all / partial / all OK)
     total_tasks = len(hotels_input) * len(dates)
     ok_count = sum(1 for r in results.values() if r.get("status") == "OK")
     if ok_count == 0:
