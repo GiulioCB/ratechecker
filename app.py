@@ -217,16 +217,19 @@ if not st.session_state.authenticated:
               url("{BG_URL}") center / cover no-repeat fixed;
         }}
 
-        /* Center the *Streamlit block* itself */
+        /* Use the real Streamlit container, but center a hero row inside it */
         [data-testid="stAppViewContainer"] .block-container {{
-            height: 100svh;                 /* dynamic viewport for mobile/desktop */
-            min-height: 100dvh;
-            display: grid;                   /* robust vertical + horizontal centering */
-            place-items: center;
-            padding: 0 !important;           /* edge-to-edge */
+            max-width: 100vw !important;
+            padding: 0 !important;
             margin: 0 !important;
-        }}
 
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;      /* horizontal center */
+            justify-content: flex-start;
+            gap: 0;
+        }}
         /* A centered box that also centers its children (widgets) */
         .landing-box {{
             width: clamp(260px, 90vw, 560px);
