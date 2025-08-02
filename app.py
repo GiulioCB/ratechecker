@@ -190,14 +190,12 @@ if "authenticated" not in st.session_state:
 if "show_password" not in st.session_state:
     st.session_state.show_password = False
 
-# ---------------------------
-# Landing screen (not authenticated)
-# ---------------------------
+
 # ---------------------------
 # Landing screen (not authenticated)
 # ---------------------------
 if not st.session_state.authenticated:
-    # Background image: local first, then GitHub raw fallback
+    # Background image: local first, fallback to GitHub raw
     local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
     _b64 = _b64_image_or_empty(local_bg)
     BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
@@ -208,36 +206,35 @@ if not st.session_state.authenticated:
         <style>
         html, body {{
             height: 100%;
-            overflow: hidden;  /* no scroll on landing */
+            overflow: hidden; /* no scroll on landing */
         }}
 
-        /* Put the image BEHIND everything */
+        /* True background behind everything */
         [data-testid="stAppViewContainer"] {{
             background:
               linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
               url("{BG_URL}") center / cover no-repeat fixed;
         }}
 
-        /* Remove Streamlit padding so the background fills edge-to-edge */
+        /* Remove default padding so the background fills edges */
         [data-testid="stAppViewContainer"] .block-container {{
             padding: 0 !important;
             margin: 0 !important;
         }}
 
-        /* === The compact card, locked to the true center of the viewport === */
+        /* ===== Fixed, pixel-perfect centered card ===== */
         .landing-fixed-center {{
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);   /* exact middle */
-            width: min(92vw, 560px);            /* compact width */
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;  /* exact middle */
+            width: min(92vw, 560px);
             display: grid;
             justify-items: center;
             align-items: center;
             gap: 16px;
             text-align: center;
             color: #e5e5e5;
-            /* no background box so the photo shows through; add one if you want */
         }}
 
         .landing-fixed-center h1 {{
@@ -260,7 +257,16 @@ if not st.session_state.authenticated:
         }}
 
         .landing-fixed-center div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
-        .landing-fixed-center div.stTextInput > div {{ width: 320px; }}  /* input width */
+        .landing-fixed-center div.stTextInput > div {{ width: 320px; }}
+
+        /* Optional: subtle glass effect for readability
+        .landing-fixed-center {{
+            background: rgba(0,0,0,.22);
+            backdrop-filter: blur(4px);
+            border-radius: 16px;
+            padding: 12px 16px;
+        }}
+        */
         </style>
 
         <div class="landing-fixed-center">
@@ -268,10 +274,8 @@ if not st.session_state.authenticated:
         unsafe_allow_html=True,
     )
 
-
-    # The actual content; render normally (no manual <div> wrappers)
-    st.markdown('<div class="landing-box">', unsafe_allow_html=True)
-    st.markdown('<h1>Giulios BAR Checker</h1>', unsafe_allow_html=True)
+    # Render the login UI **inside the centered card**
+    st.markdown("<h1>Giulios BAR Checker</h1>", unsafe_allow_html=True)
 
     if st.button("Access", key="access_btn"):
         st.session_state.show_password = True
@@ -286,8 +290,9 @@ if not st.session_state.authenticated:
             else:
                 st.error("❌ Wrong password")
 
-    st.markdown('</div>', unsafe_allow_html=True)  # close .landing-box only (safe)
-    st.stop()
+    st.markdown("</div>", unsafe_allow_html=True)  # close the centered card
+    st.stop()  # IMPORTANT: prevents anything else from rendering
+
 
 # ---------------------------
 # App header (post-login)
