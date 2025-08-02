@@ -35,6 +35,15 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 import base64, os, pathlib
+import base64, pathlib
+
+def _b64_image_or_empty(path: str) -> str:
+    """Return base64 string for a local image, or '' if it doesn't exist."""
+    p = pathlib.Path(path)
+    if not p.exists():
+        return ""
+    with open(p, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
 def _b64_image(path: str) -> str:
     p = pathlib.Path(path)
@@ -204,41 +213,54 @@ if "show_password" not in st.session_state:
     st.session_state.show_password = False
 
 if not st.session_state.authenticated:
-    # Center the REAL Streamlit container (not a custom div)
-    st.markdown(
-        """
-        <style>
-        /* Full-viewport, no scroll on the landing page */
-        html, body { height: 100%; overflow: hidden; }
+    # Try local asset first, then fallback to GitHub raw URL
+    # Use an absolute path so it works on Render
+    local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
+    b64 = _b64_image_or_empty(local_bg)
+    if b64:
+        BG_URL = f"data:image/jpeg;base64,{b64}"
+    else:
+        # Fallback to the raw file from GitHub (NOT the HTML page)
+        BG_URL = "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
+    HERO_OFFSET = "18dvh"
 
-        /* Center the Streamlit "block-container" itself */
-        [data-testid="stAppViewContainer"] .block-container {
+    st.markdown(
+        f"""
+        <style>
+        html, body {{
+            height: 100%;
+            overflow: hidden;
+        }}
+
+        /* Center horizontally, but start a bit lower from the top */
+        [data-testid="stAppViewContainer"] .block-container {{
             max-width: 100vw !important;
             padding: 0 !important;
             margin: 0 !important;
 
-            /* Flex center */
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            align-items: center;       /* horizontal center */
+            justify-content: flex-start;
 
-            height: 100dvh;  /* dynamic vh to avoid browser UI issues */
-            background: #0b0f1a; /* near-black */
-        }
+            height: 100dvh;
+            padding-top: {HERO_OFFSET};   /* <-- pushes the title & buttons down a bit */
 
-        /* Center title and widgets */
-        h1 { text-align: center; margin: 0 0 1.25rem 0; }
+            background:
+                linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
+                url("{BG_URL}") center / cover no-repeat fixed;
+        }}
 
-        /* Center the Access button */
-        div.stButton { display: flex; justify-content: center; width: 100%; }
-        div.stButton > button {
+        h1 {{ text-align: center; margin: 0 0 1.25rem 0; color: #e5e5e5; text-shadow: 0 2px 10px rgba(0,0,0,.6); }}
+
+        div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        div.stButton > button {{
             padding: 0.75rem 1.5rem; border-radius: 12px; font-weight: 600;
-        }
+            background: #2563eb; color: #fff; border: none; box-shadow: 0 4px 16px rgba(0,0,0,.35);
+        }}
 
-        /* Center the password input when shown */
-        div.stTextInput { display: flex; justify-content: center; width: 100%; }
-        div.stTextInput > div { width: 320px; }
+        div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+        div.stTextInput > div {{ width: 320px; }}
         </style>
         """,
         unsafe_allow_html=True,
