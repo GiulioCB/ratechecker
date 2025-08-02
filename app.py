@@ -229,8 +229,8 @@ if not st.session_state.authenticated:
 
         /* A centered box that also centers its children (widgets) */
         .landing-box {{
-            width: clamp(260px, 90vw, 720px);
-            display: grid;
+            width: clamp(260px, 90vw, 560px);
+            display: flex;
             justify-items: center;
             align-items: center;
             gap: 16px;
