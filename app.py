@@ -208,39 +208,62 @@ if not st.session_state.authenticated:
         <style>
         html, body {{
             height: 100%;
-            overflow: hidden;
+            overflow: hidden;              /* no scroll on landing */
         }}
 
-        /* Center horizontally, but start a bit lower from the top */
+        /* Background behind everything */
+        [data-testid="stAppViewContainer"] {{
+            background:
+              linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
+              url("{BG_URL}") center / cover no-repeat fixed;
+        }}
+
+        /* Make Streamlit's content area a full-viewport grid and center its content */
         [data-testid="stAppViewContainer"] .block-container {{
-            max-width: 100vw !important;
+            height: 100svh;                /* full dynamic viewport */
+            min-height: 100dvh;
+            display: grid;                  /* grid centering */
+            place-items: center;            /* vertical + horizontal center */
             padding: 0 !important;
             margin: 0 !important;
-
-            display: flex;
-            flex-direction: column;
-            align-items: center;       /* horizontal center */
-            justify-content: flex-start;
-
-            height: 100dvh;
-            padding-top: {HERO_OFFSET};   /* <-- pushes the title & buttons down a bit */
-
-            background:
-                linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
-                url("{BG_URL}") center / cover no-repeat fixed;
         }}
 
-        h1 {{ text-align: center; margin: 0 0 1.25rem 0; color: #e5e5e5; text-shadow: 0 2px 10px rgba(0,0,0,.6); }}
-
-        div.stButton {{ display: flex; justify-content: center; width: 100%; }}
-        div.stButton > button {{
-            padding: 0.75rem 1.5rem; border-radius: 12px; font-weight: 600;
-            background: #2563eb; color: #fff; border: none; box-shadow: 0 4px 16px rgba(0,0,0,.35);
+        /* Compact card that holds the title + buttons */
+        .center-card {{
+            width: min(92vw, 560px);       /* keep it compact */
+            display: grid;
+            justify-items: center;          /* center widgets inside */
+            align-items: center;
+            gap: 16px;
+            text-align: center;
+            color: #e5e5e5;
         }}
 
-        div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
-        div.stTextInput > div {{ width: 320px; }}
+        .center-card h1 {{
+            margin: 0;
+            font-size: clamp(1.8rem, 4vw, 3rem);
+            font-weight: 800;
+            letter-spacing: .5px;
+            text-shadow: 0 2px 10px rgba(0,0,0,.6);
+        }}
+
+        .center-card div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        .center-card div.stButton > button {{
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            background: #2563eb;
+            color: #fff;
+            font-weight: 600;
+            border: none;
+            box-shadow: 0 4px 16px rgba(0,0,0,.35);
+        }}
+
+        .center-card div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+        .center-card div.stTextInput > div {{ width: 320px; }}   /* input width */
         </style>
+
+        <!-- Open the centered wrapper -->
+        <div class="center-card">
         """,
         unsafe_allow_html=True,
     )
