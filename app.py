@@ -247,7 +247,7 @@ if not st.session_state.authenticated:
         }}
 
         /* Center Streamlit widgets inside the box */
-        .landing-box div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        .landing-box div.stButton {{ display: flex; flex-direction: column; justify-content: center; width: 100%; align-items: center; }}
         .landing-box div.stButton > button {{
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
