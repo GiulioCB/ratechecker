@@ -195,40 +195,43 @@ if "show_password" not in st.session_state:
 # Landing screen (not authenticated)
 # ---------------------------
 if not st.session_state.authenticated:
-    # Background image: local first, fallback to GitHub raw
+    # Background image: local first, then GitHub raw fallback
     local_bg = os.path.join(os.path.dirname(__file__), "assets", "landing_bg.jpg")
     _b64 = _b64_image_or_empty(local_bg)
     BG_URL = f"data:image/jpeg;base64,{_b64}" if _b64 else \
              "https://raw.githubusercontent.com/GiulioCB/ratechecker/main/assets/landing_bg.jpg"
+
+    SPACER_VH = 38  # <<< move the block up/down; try 35..42 to hit your exact sweet spot
 
     st.markdown(
         f"""
         <style>
         html, body {{
             height: 100%;
-            overflow: hidden; /* no scroll on landing */
+            overflow: hidden;                /* no scroll on landing */
         }}
 
-        /* True background behind everything */
+        /* Background behind everything */
         [data-testid="stAppViewContainer"] {{
             background:
               linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)),
               url("{BG_URL}") center / cover no-repeat fixed;
         }}
 
-        /* Remove default padding so the background fills edges */
+        /* Remove default padding so BG fills edge-to-edge */
         [data-testid="stAppViewContainer"] .block-container {{
             padding: 0 !important;
             margin: 0 !important;
+            max-width: 100vw !important;
         }}
 
-        /* ===== Fixed, pixel-perfect centered card ===== */
-        .landing-fixed-center {{
-            position: fixed !important;
-            top: 50% !important;
-            left: 50% !important;
-            transform: translate(-50%, -50%) !important;  /* exact middle */
+        /* Optional: hide Streamlit header/footer to keep the hero clean */
+        header, footer {{ visibility: hidden; height: 0; }}
+
+        /* The compact login “card” */
+        .login-card {{
             width: min(92vw, 560px);
+            margin: 0 auto;
             display: grid;
             justify-items: center;
             align-items: center;
@@ -237,7 +240,7 @@ if not st.session_state.authenticated:
             color: #e5e5e5;
         }}
 
-        .landing-fixed-center h1 {{
+        .login-card h1 {{
             margin: 0;
             font-size: clamp(1.8rem, 4vw, 3rem);
             font-weight: 800;
@@ -245,53 +248,49 @@ if not st.session_state.authenticated:
             text-shadow: 0 2px 10px rgba(0,0,0,.6);
         }}
 
-        .landing-fixed-center div.stButton {{ display: flex; justify-content: center; width: 100%; }}
-        .landing-fixed-center div.stButton > button {{
+        .login-card div.stButton {{ display: flex; justify-content: center; width: 100%; }}
+        .login-card div.stButton > button {{
             padding: 0.75rem 1.5rem;
             border-radius: 12px;
-            background: #2563eb;
-            color: #fff;
+            background: #2563eb; color: #fff; border: none;
             font-weight: 600;
-            border: none;
             box-shadow: 0 4px 16px rgba(0,0,0,.35);
         }}
 
-        .landing-fixed-center div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
-        .landing-fixed-center div.stTextInput > div {{ width: 320px; }}
-
-        /* Optional: subtle glass effect for readability
-        .landing-fixed-center {{
-            background: rgba(0,0,0,.22);
-            backdrop-filter: blur(4px);
-            border-radius: 16px;
-            padding: 12px 16px;
-        }}
-        */
+        .login-card div.stTextInput {{ display: flex; justify-content: center; width: 100%; }}
+        .login-card div.stTextInput > div {{ width: 320px; }}  /* input width */
         </style>
-
-        <div class="landing-fixed-center">
         """,
         unsafe_allow_html=True,
     )
 
-    # Render the login UI **inside the centered card**
-    st.markdown("<h1>Giulios BAR Checker</h1>", unsafe_allow_html=True)
+    # --- Vertical placement: spacer pushes the card to mid-screen ---
+    st.markdown(f'<div style="height:{SPACER_VH}vh"></div>', unsafe_allow_html=True)
 
-    if st.button("Access", key="access_btn"):
-        st.session_state.show_password = True
+    # --- Horizontal centering: put the card in the middle column ---
+    left, mid, right = st.columns([1, 1.1, 1])  # tweak middle width if you want
+    with mid:
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        st.markdown("<h1>Giulios BAR Checker</h1>", unsafe_allow_html=True)
 
-    if st.session_state.show_password:
-        pwd = st.text_input("Password", type="password", label_visibility="collapsed")
-        if st.button("Go →", key="go_btn"):
-            if check_password(pwd):
-                st.session_state.authenticated = True
-                st.session_state.show_password = False
-                st.rerun()
-            else:
-                st.error("❌ Wrong password")
+        if st.button("Access", key="access_btn"):
+            st.session_state.show_password = True
 
-    st.markdown("</div>", unsafe_allow_html=True)  # close the centered card
-    st.stop()  # IMPORTANT: prevents anything else from rendering
+        if st.session_state.show_password:
+            pwd = st.text_input("Password", type="password", label_visibility="collapsed")
+            if st.button("Go →", key="go_btn"):
+                if check_password(pwd):
+                    st.session_state.authenticated = True
+                    st.session_state.show_password = False
+                    st.rerun()
+                else:
+                    st.error("❌ Wrong password")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Stop the rest of the app from rendering until logged in
+    st.stop()
+
 
 
 # ---------------------------
